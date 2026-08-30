@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """ #+begin_org
-* ~[Summary]~ :: A =CmndSvc= for running the equivalent of facter in py and remotely with rpyc.
+* ~[Summary]~ :: A =CmndSvc= for rebuilding Raw-BISOS KVM guests (VAG). See ./README.org.
 #+end_org """
 
 ####+BEGIN: b:py3:cs:file/dblockControls :classification "cs-mu"
@@ -29,7 +29,7 @@
 ####+BEGIN: b:prog:file/particulars :authors ("./inserts/authors-mb.org")
 """ #+begin_org
 * *[[elisp:(org-cycle)][| Particulars |]]* :: Authors, version
-** This File: /l/pip/siteRegistrars/py3/bin/siteRegistrars-assemble.cs
+** This File: /bisos/git/auth/bxRepos/bisos/raw/rebuild/rawBuildKvm.cs
 ** Authors: Mohsen BANAN, http://mohsen.banan.1.byname.net/contact
 #+end_org """
 ####+END:
@@ -39,10 +39,10 @@
 * *[[elisp:(org-cycle)][| Particulars-csInfo |]]*
 #+end_org """
 import typing
-csInfo: typing.Dict[str, typing.Any] = { 'moduleName': ['facter-active'], }
+csInfo: typing.Dict[str, typing.Any] = { 'moduleName': ['rawBuildKvm'], }
 csInfo['version'] = '202409222627'
 csInfo['status']  = 'inUse'
-csInfo['panel'] = 'facter-active-Panel.org'
+csInfo['panel'] = 'rawBuildKvm-Panel.org'
 csInfo['groupingType'] = 'IcmGroupingType-pkged'
 csInfo['cmndParts'] = 'IcmCmndParts[common] IcmCmndParts[param]'
 ####+END:
@@ -50,12 +50,12 @@ csInfo['cmndParts'] = 'IcmCmndParts[common] IcmCmndParts[param]'
 """ #+begin_org
 * [[elisp:(org-cycle)][| ~Description~ |]] :: [[file:/bisos/git/auth/bxRepos/blee-binders/bisos-core/PyFwrk/bisos-pip/bisos.cs/_nodeBase_/fullUsagePanel-en.org][BISOS CmndSvcs Panel]]   [[elisp:(org-cycle)][| ]]
 
-This a =CmndSvc= for running the equivalent of facter in py and remotely with rpyc.
-With BISOS, it is used in CMDB remotely.
+Top-level orchestrator for rebuilding Raw-BISOS KVM guests from Fresh-Debian.
+This is a thin layer on top of =sysCharGuestMaterialize.sh= (vagrant based).
 
-** Status: In use with BISOS
-** /[[elisp:(org-cycle)][| Planned Improvements |]]/ :
-*** TODO Convert all ICMs to CSs
+See ./README.org for the bigger picture (Boxes, Guests and Containers).
+
+** Status: Starting point --- build orchestration not yet wired.
 #+end_org """
 
 ####+BEGIN: b:prog:file/orgTopControls :outLevel 1
@@ -90,20 +90,22 @@ import collections
 (setq  b:py:cs:csuList
   (list
    "bisos.csPlayer.bleep"
+   "rawBuild_csu"
  ))
 #+END_SRC
 #+RESULTS:
-| bisos.csPlayer.bleep |
+| bisos.csPlayer.bleep | rawBuild_csu |
 #+end_org """
 
 ####+BEGIN: b:py3:cs:framework/csuListProc :pyImports t :csuImports t :csuParams t :csmuParams nil
 """ #+begin_org
-*  _[[elisp:(blee:menu-sel:outline:popupMenu)][±]]_ _[[elisp:(blee:menu-sel:navigation:popupMenu)][Ξ]]_ [[elisp:(outline-show-branches+toggle)][|=]] [[elisp:(bx:orgm:indirectBufOther)][|>]] *[[elisp:(blee:ppmm:org-mode-toggle)][|N]]*  CsFrmWrk   [[elisp:(outline-show-subtree+toggle)][||]] ~Process CSU List~ with /1/ in csuList pyImports=t csuImports=t csuParams=t
+*  _[[elisp:(blee:menu-sel:outline:popupMenu)][±]]_ _[[elisp:(blee:menu-sel:navigation:popupMenu)][Ξ]]_ [[elisp:(outline-show-branches+toggle)][|=]] [[elisp:(bx:orgm:indirectBufOther)][|>]] *[[elisp:(blee:ppmm:org-mode-toggle)][|N]]*  CsFrmWrk   [[elisp:(outline-show-subtree+toggle)][||]] ~Process CSU List~ with /2/ in csuList pyImports=t csuImports=t csuParams=t
 #+end_org """
 
 from bisos.csPlayer import bleep
+import rawBuild_csu
 
-csuList = [ 'bisos.csPlayer.bleep', ]
+csuList = [ 'bisos.csPlayer.bleep', 'rawBuild_csu', ]
 
 g_importedCmndsModules = cs.csuList_importedModules(csuList)
 
@@ -156,105 +158,67 @@ class examples(cs.Cmnd):
         cs.examples.myName(cs.G.icmMyName(), cs.G.icmMyFullName())
         cs.examples.commonBrief()
 
+        od = collections.OrderedDict
         cmnd = cs.examples.cmndEnter
-        literal = cs.examples.execInsert
 
-        cs.examples.menuChapter('=Set Commands=')
-        cmnd('inotifyUserMax', comment=" # inotify.max_user_instances")
-
-        cs.examples.menuChapter('=Full Update=')
-        cmnd('fullUpdate', comment=" # inotifyUserMax")
-
-        cs.examples.menuChapter(f'*Current Settings*')
-        literal(f"sysctl fs.inotify.max_user_instances")
-        literal(f"cat /proc/sys/fs/inotify/max_user_instances")
+        # KVM guests --- VAG model only, one entry per Debian release.
+        cs.examples.menuChapter('=Build rawBisos KVM Guests (VAG)=')
+        for freshDeb in ('12', '13'):
+            cmnd('buildKvm_rawBisos',
+                 pars=od(freshDeb=freshDeb),
+                 comment=f" # build KVM guest -- deb{freshDeb} VAG")
 
         return(cmndOutcome)
 
-####+BEGIN: b:py3:cs:cmnd/classHead :cmndName "fullUpdate" :comment "" :extent "verify" :ro "cli" :parsMand "" :parsOpt "" :argsMin 0 :argsMax 0 :pyInv ""
+
+####+BEGIN: b:py3:cs:cmnd/classHead :cmndName "buildKvm_rawBisos" :comment "" :extent "verify" :ro "cli" :parsMand "" :parsOpt "freshDeb" :argsMin 0 :argsMax 0 :pyInv ""
 """ #+begin_org
-*  _[[elisp:(blee:menu-sel:outline:popupMenu)][±]]_ _[[elisp:(blee:menu-sel:navigation:popupMenu)][Ξ]]_ [[elisp:(outline-show-branches+toggle)][|=]] [[elisp:(bx:orgm:indirectBufOther)][|>]] *[[elisp:(blee:ppmm:org-mode-toggle)][|N]]*  CmndSvc-   [[elisp:(outline-show-subtree+toggle)][||]] <<fullUpdate>>  =verify= ro=cli   [[elisp:(org-cycle)][| ]]
+*  _[[elisp:(blee:menu-sel:outline:popupMenu)][±]]_ _[[elisp:(blee:menu-sel:navigation:popupMenu)][Ξ]]_ [[elisp:(outline-show-branches+toggle)][|=]] [[elisp:(bx:orgm:indirectBufOther)][|>]] *[[elisp:(blee:ppmm:org-mode-toggle)][|N]]*  CmndSvc-   [[elisp:(outline-show-subtree+toggle)][||]] <<buildKvm_rawBisos>>  =verify= parsOpt=freshDeb ro=cli   [[elisp:(org-cycle)][| ]]
 #+end_org """
-class fullUpdate(cs.Cmnd):
+class buildKvm_rawBisos(cs.Cmnd):
     cmndParamsMandatory = [ ]
-    cmndParamsOptional = [ ]
+    cmndParamsOptional = [ 'freshDeb', ]
     cmndArgsLen = {'Min': 0, 'Max': 0,}
 
     @cs.track(fnLoc=True, fnEntry=True, fnExit=True)
     def cmnd(self,
              rtInv: cs.RtInvoker,
              cmndOutcome: b.op.Outcome,
+             freshDeb: typing.Optional[str]=None,  # Cs Optional Param
     ) -> b.op.Outcome:
 
         failed = b_io.eh.badOutcome
-        callParamsDict = {}
+        callParamsDict = {'freshDeb': freshDeb, }
         if self.invocationValidate(rtInv, cmndOutcome, callParamsDict, None).isProblematic():
             return failed(cmndOutcome)
+        freshDeb = csParam.mappedValue('freshDeb', freshDeb)
 ####+END:
-        if self.cmndDocStr(f""" #+begin_org
-** [[elisp:(org-cycle)][| *CmndDesc:* | ]]  A starting point command.
+        if self.cmndDocStr(""" #+begin_org
+** [[elisp:(org-cycle)][| *CmndDesc:* | ]]  Build (rebuild) a Raw-BISOS KVM guest (VAG) from Fresh-Debian.
+
+        Orchestration layer on top of /sysCharGuestMaterialize.sh/ (vagrant based).
+        Uses =freshDeb= to select the VAG guest bpoId (=pmp_VAG-deb12_= / =pmp_VAG-deb13_=),
+        then drives the guest materialization --- typically:
+          sysCharGuestMaterialize.sh -p bpoId=<bpoId> -p phases="P0" -i vagrantFile_run
+          sysCharGuestMaterialize.sh -p bpoId=<bpoId> -i vmCustomize
         #+end_org """): return(cmndOutcome)
 
         self.captureRunStr(""" #+begin_org
 #+begin_src sh :results output :session shared
-  siteRegistrars-assemble.cs -i fullUpdate
+  rawBuildKvm.cs -i buildKvm_rawBisos --freshDeb=13
 #+end_src
 #+RESULTS:
-#+begin_example
-#+end_example
         #+end_org """)
 
-        inotifyUserMax().pyCmnd()
+        bpoId = f"pmp_VAG-deb{freshDeb}_"
+
+        # TODO Starting point --- wire the sysCharGuestMaterialize.sh orchestration
+        # (vagrantFile_run phases=P0, then vmCustomize) via b.subProc.
+        b_io.ann.note(f"buildKvm_rawBisos: freshDeb={freshDeb} bpoId={bpoId} --- not yet implemented")
 
         return cmndOutcome
 
-####+BEGIN: b:py3:cs:cmnd/classHead :cmndName "inotifyUserMax" :comment "" :extent "verify" :ro "cli" :parsMand "" :parsOpt "" :argsMin 0 :argsMax 0 :pyInv ""
-""" #+begin_org
-*  _[[elisp:(blee:menu-sel:outline:popupMenu)][±]]_ _[[elisp:(blee:menu-sel:navigation:popupMenu)][Ξ]]_ [[elisp:(outline-show-branches+toggle)][|=]] [[elisp:(bx:orgm:indirectBufOther)][|>]] *[[elisp:(blee:ppmm:org-mode-toggle)][|N]]*  CmndSvc-   [[elisp:(outline-show-subtree+toggle)][||]] <<inotifyUserMax>>  =verify= ro=cli   [[elisp:(org-cycle)][| ]]
-#+end_org """
-class inotifyUserMax(cs.Cmnd):
-    cmndParamsMandatory = [ ]
-    cmndParamsOptional = [ ]
-    cmndArgsLen = {'Min': 0, 'Max': 0,}
-
-    @cs.track(fnLoc=True, fnEntry=True, fnExit=True)
-    def cmnd(self,
-             rtInv: cs.RtInvoker,
-             cmndOutcome: b.op.Outcome,
-    ) -> b.op.Outcome:
-
-        failed = b_io.eh.badOutcome
-        callParamsDict = {}
-        if self.invocationValidate(rtInv, cmndOutcome, callParamsDict, None).isProblematic():
-            return failed(cmndOutcome)
-####+END:
-        if self.cmndDocStr(f""" #+begin_org
-** [[elisp:(org-cycle)][| *CmndDesc:* | ]]  A starting point command.
-        #+end_org """): return(cmndOutcome)
-
-        self.captureRunStr(""" #+begin_org
-#+begin_src sh :results output :session shared
-  siteRegistrars-assemble.cs -i roPerfSapCreate
-#+end_src
-#+RESULTS:
-#+begin_example
-,** cmnd= svcPerfSiteRegistrars.cs --svcName="svcSiteRegistrars" --perfName="svcSiteRegistrars" --rosmu="svcPerfSiteRegistrars.cs"  -i perf_sapCreate
-Cmnd -- No Results
-#+end_example
-        #+end_org """)
-
-        if b.subProc.WOpW(invedBy=self, log=1).bash(
-                f"""\
-sudo sysctl fs.inotify.max_user_instances=1024
-echo "fs.inotify.max_user_instances=1024" | sudo tee /etc/sysctl.d/99-inotify.conf
-sudo sysctl --system
-""",
-        ).isProblematic():  return(b_io.eh.badOutcome(cmndOutcome))
-
-        return cmndOutcome
-
-
-    ####+BEGIN: blee:bxPanel:foldingSection :outLevel 0 :sep nil :title "Main" :anchor ""  :extraInfo "Framework DBlock"
+####+BEGIN: blee:bxPanel:foldingSection :outLevel 0 :sep nil :title "Main" :anchor ""  :extraInfo "Framework DBlock"
 """ #+begin_org
 *  _[[elisp:(blee:menu-sel:outline:popupMenu)][±]]_ _[[elisp:(blee:menu-sel:navigation:popupMenu)][Ξ]]_ [[elisp:(outline-show-branches+toggle)][|=]] [[elisp:(bx:orgm:indirectBufOther)][|>]] *[[elisp:(blee:ppmm:org-mode-toggle)][|N]]*     [[elisp:(outline-show-subtree+toggle)][| _Main_: |]]  Framework DBlock  [[elisp:(org-shifttab)][<)]] E|
 #+end_org """

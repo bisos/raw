@@ -1,0 +1,234 @@
+#+TITLE: Rebuilding Raw-BISOS From Scratch --- Boxes, Guests and Containers
+#+AUTHOR: Mohsen BANAN
+#+OPTIONS: toc:nil
+
+This directory --- =/bisos/core/raw/rebuild= --- provides the top-level commands for
+rebuilding *Raw-BISOS* from scratch across the different kinds of platforms that
+BISOS runs on:
+
+- *Boxes* --- raw metal (laptops, Raspberry Pi, servers)
+- *Guests* --- KVM virtual machines
+- *Containers* --- Docker and Podman
+
+Each command here is a thin *orchestration layer* on top of machinery that already
+exists elsewhere; the value is a single, uniform entry point for reconstructing a
+platform from a Fresh-Debian starting point.
+
+Beyond direct, on-demand builds, these commands double as BISOS/Blee *CI/CD*: we
+periodically rebuild everything, on every platform, to verify that new code still
+works everywhere. In BISOS, "regression testing" takes the form of Raw-BISOS
+re-construction.
+
+Raw-BISOS bootstrapping itself is defined in the =bxGenesis/start= repository:
+https://github.com/bxgenesis/start
+
+* Table of Contents                                                     :TOC:
+- [[#background-what-is-raw-bisos][Background: What Is Raw-BISOS]]
+- [[#platforms-at-a-glance][Platforms at a Glance]]
+- [[#containers-----rawbuildcontainercs][Containers --- ./rawBuildContainer.cs]]
+  - [[#two-layers-image-and-instance][Two Layers: Image and Instance]]
+  - [[#leaves-the-build-matrix][Leaves: the Build Matrix]]
+  - [[#instance-layer-----buildcontainer_rawbisos][Instance Layer --- buildContainer_rawBisos]]
+  - [[#image-layer-----buildimage_rawbisos][Image Layer --- buildImage_rawBisos]]
+  - [[#parameters][Parameters]]
+- [[#guests-kvms-----rawbuildkvmcs][Guests (KVMs) --- ./rawBuildKvm.cs]]
+- [[#boxes-raw-metal-----rawbuildboxcs][Boxes (raw metal) --- ./rawBuildBox.cs]]
+- [[#see-also][See Also]]
+
+* Background: What Is Raw-BISOS
+  :PROPERTIES:
+  :CUSTOM_ID: background-what-is-raw-bisos
+  :END:
+
+*Raw-BISOS* is the base software of BISOS and Blee without any site- or
+user-specific customization. It augments a Fresh-Debian so that the higher layers
+of BISOS (VM hosting, Rims sites, PALS services) can be installed on top.
+
+The canonical bootstrap is =raw-bisos.sh= from [[https://github.com/bxgenesis/start][bxGenesis/start]], run on a fresh
+Debian as =raw-bisos.sh -i installUnsitedBisos=. The commands in this directory
+drive that same bootstrap across many targets at once --- for containers, for
+example, each leaf ultimately runs =installRawBisos.sh= (which fetches and runs
+=raw-bisos.sh=) inside the freshly created container.
+
+* Platforms at a Glance
+  :PROPERTIES:
+  :CUSTOM_ID: platforms-at-a-glance
+  :END:
+
+| Platform            | Command                | Layered on top of                    |
+|---------------------+------------------------+--------------------------------------|
+| Containers          | =./rawBuildContainer.cs= | =bxObjects/bro_dockerfiles=          |
+| Guests (KVMs)       | =./rawBuildKvm.cs=       | =sysCharGuestMaterialize.sh=         |
+| Boxes (raw metal)   | =./rawBuildBox.cs=       | =sysCharBoxMaterialize.sh=           |
+
+All three support Debian 12 and Debian 13 (the two most recent Debian releases).
+
+* Containers --- ./rawBuildContainer.cs
+  :PROPERTIES:
+  :CUSTOM_ID: containers-----rawbuildcontainercs
+  :END:
+
+=rawBuildContainer.cs= is a top layer over
+=/bisos/git/auth/bxRepos/bxObjects/bro_dockerfiles=. Each leaf directory there is a
+self-configuring "planted" command service (=dockerProc.spcs= for Docker leaves,
+=podmanProc.spcs= for Podman leaves) that derives all of its parameters from its
+own path. =rawBuildContainer.cs= locates the right leaf and drives it.
+
+dockerProcs.spcs facility is part of the bisos.dockerProc pypi package.
+
+Discover everything interactively with:
+
+#+begin_src sh
+rawBuildContainer.cs -i examples
+#+end_src
+
+** Two Layers: Image and Instance
+   :PROPERTIES:
+   :CUSTOM_ID: two-layers-image-and-instance
+   :END:
+
+Container work naturally splits into two layers with very different cadences:
+
+- *Image layer* (infrequent) --- rebuild the container /image/ when its source
+  changes (the =Dockerfile= or the =~/raw-bisos= payload baked into it). This is
+  =buildImage_rawBisos=, kept out of the main menu behind a dedicated sub-menu so
+  the everyday workflow stays uncluttered.
+
+- *Instance layer* (frequent) --- create and provision a running /instance/ from an
+  existing image. This is =buildContainer_rawBisos=, the main command.
+
+You typically change something image-related, rebuild the image once, then iterate
+on instance builds many times.
+
+** Leaves: the Build Matrix
+   :PROPERTIES:
+   :CUSTOM_ID: leaves-the-build-matrix
+   :END:
+
+A *leaf* is one buildable target, selected by two parameters:
+
+- =freshDeb= --- the Debian release: =12= or =13=
+- =platformModel= --- the container profile:
+  - =confined= --- a plain (confined) Docker container
+  - =sysd-priv= --- a privileged Docker container running =systemd= (=/sbin/init=)
+  - =sysd-podman= --- a rootless Podman container running =systemd=
+
+That gives 6 leaves: {deb12, deb13} × {confined, sysd-priv, sysd-podman}.
+
+** Instance Layer --- buildContainer_rawBisos
+   :PROPERTIES:
+   :CUSTOM_ID: instance-layer-----buildcontainer_rawbisos
+   :END:
+
+For a given leaf, =buildContainer_rawBisos=:
+
+1. resolves the leaf directory,
+2. checks whether an instance is already running,
+3. if it is running and =--force=True= was given, deletes it (stop + remove),
+4. brings up an instance if none is running,
+5. runs =installRawBisos.sh= inside the container to install Raw-BISOS.
+
+Build any of the 6 leaves. The plain form provisions on top of whatever instance
+exists; the =--force=True= form deletes an existing instance first:
+
+#+begin_src sh
+# deb12
+rawBuildContainer.cs -i buildContainer_rawBisos --freshDeb="12" --platformModel="confined"
+rawBuildContainer.cs -i buildContainer_rawBisos --freshDeb="12" --platformModel="confined"   --force="True"
+rawBuildContainer.cs -i buildContainer_rawBisos --freshDeb="12" --platformModel="sysd-priv"
+rawBuildContainer.cs -i buildContainer_rawBisos --freshDeb="12" --platformModel="sysd-priv"  --force="True"
+rawBuildContainer.cs -i buildContainer_rawBisos --freshDeb="12" --platformModel="sysd-podman"
+rawBuildContainer.cs -i buildContainer_rawBisos --freshDeb="12" --platformModel="sysd-podman" --force="True"
+
+# deb13
+rawBuildContainer.cs -i buildContainer_rawBisos --freshDeb="13" --platformModel="confined"
+rawBuildContainer.cs -i buildContainer_rawBisos --freshDeb="13" --platformModel="confined"   --force="True"
+rawBuildContainer.cs -i buildContainer_rawBisos --freshDeb="13" --platformModel="sysd-priv"
+rawBuildContainer.cs -i buildContainer_rawBisos --freshDeb="13" --platformModel="sysd-priv"  --force="True"
+rawBuildContainer.cs -i buildContainer_rawBisos --freshDeb="13" --platformModel="sysd-podman"
+rawBuildContainer.cs -i buildContainer_rawBisos --freshDeb="13" --platformModel="sysd-podman" --force="True"
+#+end_src
+
+** Image Layer --- buildImage_rawBisos
+   :PROPERTIES:
+   :CUSTOM_ID: image-layer-----buildimage_rawbisos
+   :END:
+
+Image construction is deliberately kept out of the main menu. A single entry opens
+a dedicated image-construction menu that lists =buildImage_rawBisos= for every leaf:
+
+#+begin_src sh
+rawBuildContainer.cs -i buildImageExamples
+#+end_src
+
+Rebuild an image for a leaf (add =--noCache=True= to bypass the layer cache and
+force a clean rebuild --- e.g. after editing the =~/raw-bisos= payload):
+
+#+begin_src sh
+rawBuildContainer.cs -i buildImage_rawBisos --freshDeb="13" --platformModel="sysd-priv"
+rawBuildContainer.cs -i buildImage_rawBisos --freshDeb="13" --platformModel="sysd-priv" --noCache="True"
+#+end_src
+
+Note: the =sysd-priv= and =sysd-podman= images are built =FROM= the =confined= base
+for the same Debian release, so if you change base-image inputs, rebuild the
+=confined= leaf first.
+
+** Parameters
+   :PROPERTIES:
+   :CUSTOM_ID: parameters
+   :END:
+
+Parameter values use Python-literal syntax (e.g. =True=, not ='t'=).
+
+| Parameter        | Values                              | Applies to        | Meaning                                             |
+|------------------+-------------------------------------+-------------------+-----------------------------------------------------|
+| =freshDeb=       | =12=, =13=                          | both layers       | Debian release of the leaf                          |
+| =platformModel=  | =confined=, =sysd-priv=, =sysd-podman= | both layers    | Container profile of the leaf                       |
+| =instance=       | e.g. =0=                            | instance layer    | Instance identifier                                 |
+| =force=          | =True=                              | instance layer    | Delete an existing running instance before bringing it up |
+| =noCache=        | =True=                              | image layer       | Build the image with =--no-cache=                   |
+
+* Guests (KVMs) --- ./rawBuildKvm.cs
+  :PROPERTIES:
+  :CUSTOM_ID: guests-kvms-----rawbuildkvmcs
+  :END:
+
+Builds generic Debian 12 and Debian 13 guest VMs (VAG model), as an orchestration
+layer on top of =sysCharGuestMaterialize.sh=. Single layer, one command per
+release (=freshDeb= selects the =pmp_VAG-deb{12,13}_= bpoId):
+
+#+begin_src sh
+rawBuildKvm.cs -i buildKvm_rawBisos --freshDeb="12"
+rawBuildKvm.cs -i buildKvm_rawBisos --freshDeb="13"
+#+end_src
+
+/Status: starting point --- the materialization is not yet wired./
+
+* Boxes (raw metal) --- ./rawBuildBox.cs
+  :PROPERTIES:
+  :CUSTOM_ID: boxes-raw-metal-----rawbuildboxcs
+  :END:
+
+Builds generic Debian 12 and Debian 13 on real hardware (laptops, Raspberry Pi,
+etc), as an orchestration layer on top of =sysCharBoxMaterialize.sh=. The
+destination box IP address is the positional argument; =freshDeb= selects the
+release:
+
+#+begin_src sh
+rawBuildBox.cs -i buildBox_rawBisos --freshDeb="12" 192.168.0.45
+rawBuildBox.cs -i buildBox_rawBisos --freshDeb="13" 192.168.0.45
+#+end_src
+
+/Status: starting point --- the materialization is not yet wired./
+
+* See Also
+  :PROPERTIES:
+  :CUSTOM_ID: see-also
+  :END:
+
+- [[https://github.com/bxgenesis/start][bxGenesis/start]] --- Bootstrapping ByStar, BISOS and Blee (=raw-bisos.sh=)
+- =bxObjects/bro_dockerfiles= --- the container leaves driven by =rawBuildContainer.cs=
+
+# Local Variables:
+# eval: (setq-local toc-org-max-depth 4)
+# End:

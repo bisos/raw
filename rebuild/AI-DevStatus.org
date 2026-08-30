@@ -1,0 +1,105 @@
+#+title: Development Status & Continuation Handoff
+#+TAGS: me ai aiAndMe
+
+# Provenance (installed once by aiActivity.cs --- not regenerated):
+#   Date:      2026-08-29T13:01:20-07:00
+#   User:      bystar
+#   Templates: /bisos/apps/defaults/ai-templates
+#   Command:   /bisos/venv/py3/devbin/aiActivity.cs -i initiate --activity=xu-single
+
+####+BEGIN: b:ai:file/particulars
+* AI Working Context
+  Working Directory: /bisos/git/auth/bxRepos/bisos/raw/rebuild
+  File: /bisos/git/auth/bxRepos/bisos/raw/rebuild/AI-DevStatus.org
+  Activity: xu-single
+  Companion Docs: AI-WORKFLOW.org, AI-Activity.org, AI-DevStatus.org
+####+END:
+
+This file is a working-state handoff so development can continue on another
+machine (which has this repo but NOT the developer's =~=). It captures the
+architecture, what works, what is untested and the design decisions made so far.
+
+This file is maintained by Claude. Updates are typically triggered by the
+=/bx-update-status= slash command, after major interactions, or before a release.
+
+Note to a fresh Claude: this file is intentionally sparse at project start.
+Fill in the sections below when asked to update, following the structure provided.
+
+* Current State
+
+Top-level orchestrators for rebuilding Raw-BISOS from scratch across three
+platforms live here:
+
+- =rawBuildContainer.cs= --- Docker/Podman containers. Functional and *minimally
+  tested/used* (buildContainer_rawBisos run end-to-end on the deb13 sysd-priv leaf).
+- =rawBuildKvm.cs= --- KVM guests (VAG). Starting point; *not yet tested* --- the
+  build body is a placeholder.
+- =rawBuildBox.cs= --- boxes (raw metal). Starting point; *not yet tested* --- the
+  build body is a placeholder.
+
+=rawBuild_csu.py= is the shared CSU (params); =README.org= is GitHub-presentable
+and documents all three.
+
+* Architecture
+
+- =rawBuild_csu.py= :: shared params via commonParamsSpecify --- =freshDeb=
+  (12/13), =platformModel= (confined/sysd-priv/sysd-podman), =instance=, =force=,
+  =noCache=, plus placeholders (=startState=, =endResult=, =endVerify=, =endNotify=).
+- =rawBuildContainer.cs= :: layered over =bxObjects/bro_dockerfiles=. Two layers:
+  - Instance layer --- =buildContainer_rawBisos= (main): resolve leaf via
+    =containerPathObtain= -> Ps -> (force) delete -> up -> exec installRawBisos.
+  - Image layer --- =buildImage_rawBisos= (+ =noCache=), behind the
+    =buildImageExamples= sub-menu to keep the main menu uncluttered.
+  - =containerPathObtain= :: maps (freshDeb, platformModel) to the leaf path and
+    verifies it exists.
+  - Each leaf is driven by its planted CS: =dockerProc.spcs= (docker) /
+    =podmanProc.spcs= (podman, sysd-podman) selected by platformModel.
+- =rawBuildKvm.cs= :: =buildKvm_rawBisos= --freshDeb; bpoId =pmp_VAG-deb{12,13}_=;
+  intended to drive =sysCharGuestMaterialize.sh= (placeholder body).
+- =rawBuildBox.cs= :: =buildBox_rawBisos= --freshDeb + destination IP as positional
+  arg; intended to drive =sysCharBoxMaterialize.sh= (placeholder body).
+- Cross-repo fix applied :: =bisos.dockerProc= containerProc_exec_installRawBisos
+  (in bisos-pip/dockerProc) --- run as =-u bystar= (not root), drop =-it=
+  (non-interactive), and propagate exit status (was masked as always-Success).
+
+* What Works
+
+- =rawBuildContainer.cs -i buildContainer_rawBisos --freshDeb="13"
+  --platformModel="sysd-priv" --force="True"= --- run end-to-end (Ps -> delete ->
+  up -> installRawBisos). *Minimally tested* on that one leaf.
+- =containerPathObtain= verified to reproduce real =bro_dockerfiles= paths for all
+  three platformModels; missing-path guard fires correctly.
+- Examples menus render for all three files; both container sub-menus
+  (=examples=, =buildImageExamples=) list the expected matrices.
+- All files load and are pyflakes-clean (modulo benign unused-import warnings).
+
+* What Is Untested
+
+- =rawBuildKvm.cs= and =rawBuildBox.cs= :: *need testing* --- their build bodies are
+  placeholders (=b_io.ann.note ... not yet implemented=); no materialization wired.
+- =rawBuildContainer.cs= :: only the deb13/sysd-priv leaf exercised; the other 5
+  leaves (deb12, confined, sysd-podman) and =buildImage_rawBisos= /
+  =buildImageExamples= are unrun.
+- The box build flow itself is unresolved: which =sysCharBoxMaterialize.sh= verb
+  sequence means "rebuild Raw-BISOS on metal" is not yet confirmed.
+- Verification/assertion of build success is not wired (=endVerify= placeholder;
+  =containerProc_instanceVerify= not called).
+
+* Key Design Decisions
+
+- Two-layer container model (image vs instance) --- different change cadences;
+  =force= means only "delete existing instance", not "rebuild image".
+- Image construction kept out of the main workflow (behind =buildImageExamples=).
+- Param values use Python-literal syntax (=True=, not ='t'=). Note: PyCS delivers
+  CLI values as strings, so code compares to ="True"=.
+- Sibling CSU imported as =import rawBuild_csu= (not =from . import=) because =.cs=
+  files run directly as scripts (no parent package); csuList entry is =rawBuild_csu=.
+  Fixed the =csuListProc= dblock generator to emit bare =import= for dot-less names.
+- =instance= is accepted but not part of the container path (future: per-instance
+  subdir).
+- KVM: single layer, VAG only, {deb12, deb13}. Box: destination IP is a positional
+  argument, {deb12, deb13}.
+
+# Local Variables:
+# eval: (setq-local toc-org-max-depth 4)
+# End:
