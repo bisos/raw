@@ -28,7 +28,7 @@ https://github.com/bxgenesis/start
 - [[#containers-----rawbuildcontainercs][Containers --- ./rawBuildContainer.cs]]
   - [[#two-layers-image-and-instance][Two Layers: Image and Instance]]
   - [[#leaves-the-build-matrix][Leaves: the Build Matrix]]
-  - [[#instance-layer-----buildcontainer_rawbisos][Instance Layer --- buildContainer_rawBisos]]
+  - [[#instance-layer-----proccontainer][Instance Layer --- procContainer]]
   - [[#image-layer-----buildimage_rawbisos][Image Layer --- buildImage_rawBisos]]
   - [[#parameters][Parameters]]
 - [[#guests-kvms-----rawbuildkvmcs][Guests (KVMs) --- ./rawBuildKvm.cs]]
@@ -94,8 +94,9 @@ Container work naturally splits into two layers with very different cadences:
   =buildImage_rawBisos=, kept out of the main menu behind a dedicated sub-menu so
   the everyday workflow stays uncluttered.
 
-- *Instance layer* (frequent) --- create and provision a running /instance/ from an
-  existing image. This is =buildContainer_rawBisos=, the main command.
+- *Instance layer* (frequent) --- create, provision and verify a running /instance/
+  from an existing image. This is =procContainer=, driven by an ordered =steps=
+  pipeline (the main command).
 
 You typically change something image-related, rebuild the image once, then iterate
 on instance builds many times.
@@ -115,38 +116,49 @@ A *leaf* is one buildable target, selected by two parameters:
 
 That gives 6 leaves: {deb12, deb13} × {confined, sysd-priv, sysd-podman}.
 
-** Instance Layer --- buildContainer_rawBisos
+** Instance Layer --- procContainer
    :PROPERTIES:
-   :CUSTOM_ID: instance-layer-----buildcontainer_rawbisos
+   :CUSTOM_ID: instance-layer-----proccontainer
    :END:
 
-For a given leaf, =buildContainer_rawBisos=:
+=procContainer= runs an ordered list of =steps= (a Python-literal list) against a
+leaf --- serially, fail-fast --- then always prints clickable connect lines. Known
+steps:
 
-1. resolves the leaf directory,
-2. checks whether an instance is already running,
-3. if it is running and =--force=True= was given, deletes it (stop + remove),
-4. brings up an instance if none is running,
-5. runs =installRawBisos.sh= inside the container to install Raw-BISOS.
+- =delete= --- stop + remove the instance
+- =up= --- bring the instance up (only if not already running)
+- =installRawBisos= --- run =installRawBisos.sh= inside the container
+- =verifyUp= --- verify the running instance (ports, noVNC HTTP, SSH/systemd)
 
-Build any of the 6 leaves. The plain form provisions on top of whatever instance
-exists; the =--force=True= form deletes an existing instance first:
+An unknown step is a hard error. Future steps (=verifyRawBisos=, =capRawBisos=,
+=verifyCapRawBisos=) will be added to the registry as they are implemented.
+
+Common recipes:
 
 #+begin_src sh
-# deb12
-rawBuildContainer.cs -i buildContainer_rawBisos --freshDeb="12" --platformModel="confined"
-rawBuildContainer.cs -i buildContainer_rawBisos --freshDeb="12" --platformModel="confined"   --force="True"
-rawBuildContainer.cs -i buildContainer_rawBisos --freshDeb="12" --platformModel="sysd-priv"
-rawBuildContainer.cs -i buildContainer_rawBisos --freshDeb="12" --platformModel="sysd-priv"  --force="True"
-rawBuildContainer.cs -i buildContainer_rawBisos --freshDeb="12" --platformModel="sysd-podman"
-rawBuildContainer.cs -i buildContainer_rawBisos --freshDeb="12" --platformModel="sysd-podman" --force="True"
+# Bring a VNC container up and verify it (no install)
+rawBuildContainer.cs -i procContainer --freshDeb="13" --platformModel="confined" --steps='["up", "verifyUp"]'
 
-# deb13
-rawBuildContainer.cs -i buildContainer_rawBisos --freshDeb="13" --platformModel="confined"
-rawBuildContainer.cs -i buildContainer_rawBisos --freshDeb="13" --platformModel="confined"   --force="True"
-rawBuildContainer.cs -i buildContainer_rawBisos --freshDeb="13" --platformModel="sysd-priv"
-rawBuildContainer.cs -i buildContainer_rawBisos --freshDeb="13" --platformModel="sysd-priv"  --force="True"
-rawBuildContainer.cs -i buildContainer_rawBisos --freshDeb="13" --platformModel="sysd-podman"
-rawBuildContainer.cs -i buildContainer_rawBisos --freshDeb="13" --platformModel="sysd-podman" --force="True"
+# Full build: recreate, bring up, install Raw-BISOS, verify
+rawBuildContainer.cs -i procContainer --freshDeb="13" --platformModel="sysd-priv" --steps='["delete", "up", "installRawBisos", "verifyUp"]'
+#+end_src
+
+Run =rawBuildContainer.cs -i examples= for the full per-leaf recipe matrix.
+
+*** Status and overview
+
+- =containerPs --freshDeb=.. --platformModel=..= --- report whether one leaf's
+  instance is UP (with connect lines) or not.
+- =allContainersPs= --- =docker ps -a= + =podman ps -a=; auto-shown at the top of
+  the =examples= menu, so just running the examples tells you what is up.
+
+The connect lines are runnable (RET in a shell) with the URL kept as a trailing
+comment:
+
+#+begin_src sh
+vncviewer 192.168.0.153:5903 # vnc://192.168.0.153:5903
+ssh -p 2224 bystar@192.168.0.153 # ssh://bystar@192.168.0.153:2224
+visitUrl http://192.168.0.153:6903/
 #+end_src
 
 ** Image Layer --- buildImage_rawBisos
@@ -185,7 +197,7 @@ Parameter values use Python-literal syntax (e.g. =True=, not ='t'=).
 | =freshDeb=       | =12=, =13=                          | both layers       | Debian release of the leaf                          |
 | =platformModel=  | =confined=, =sysd-priv=, =sysd-podman= | both layers    | Container profile of the leaf                       |
 | =instance=       | e.g. =0=                            | instance layer    | Instance identifier                                 |
-| =force=          | =True=                              | instance layer    | Delete an existing running instance before bringing it up |
+| =steps=          | Python list, e.g. =["up","verifyUp"]= | instance layer  | Ordered pipeline steps for =procContainer= (fail-fast) |
 | =noCache=        | =True=                              | image layer       | Build the image with =--no-cache=                   |
 
 * Guests (KVMs) --- ./rawBuildKvm.cs

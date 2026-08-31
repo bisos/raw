@@ -132,6 +132,46 @@ cs.invOutcomeReportControl(cmnd=True, ro=True)
 #+end_org """
 ####+END:
 
+def rawBuild_connectInfoShow(self, platformModel, instancePath):
+    """Print clickable ssh/vnc/noVNC URLs (this host's IP + the leaf's published ports).
+
+    Ports are read live from the engine (=<engine> port <name>=) rather than
+    hardcoded; the host IP is =hostname -I='s first address.
+    """
+    engine = 'podman' if platformModel == 'sysd-podman' else 'docker'
+    imageName = instancePath.name
+
+    # b.subProc WOpW reuses one outcome object across calls, so capture each
+    # command's stdout into a string immediately, before issuing the next.
+    portsStr = (b.subProc.WOpW(invedBy=self, log=0).bash(f"{engine} port {imageName}").stdout or "")
+    hostStr = (b.subProc.WOpW(invedBy=self, log=0).bash("hostname -I").stdout or "")
+
+    hostToks = hostStr.split()
+    ipAddr = hostToks[0] if hostToks else "localhost"
+
+    # Map container-side port -> host published port, e.g. "22/tcp -> 0.0.0.0:2224".
+    portMap = {}
+    for line in portsStr.splitlines():
+        if '->' not in line:
+            continue
+        cSide, hSide = line.split('->')
+        cPort = cSide.strip().split('/')[0]
+        hPort = hSide.strip().rsplit(':', 1)[-1]
+        portMap[cPort] = hPort
+
+    novnc, vnc, ssh = portMap.get('6901'), portMap.get('5901'), portMap.get('22')
+
+    if not (novnc or vnc or ssh):
+        print(f"# {imageName} is not running --- no connection info.")
+        return
+
+    # Each line is a runnable CLI command (RET in a shell) with the URL kept as a
+    # trailing comment. noVNC uses visitUrl (to be defined) in front of the URL.
+    print(f"# Connect to {imageName} (go to a line and hit RET):")
+    if vnc:   print(f"vncviewer {ipAddr}:{vnc} # vnc://{ipAddr}:{vnc}")
+    if ssh:   print(f"ssh -p {ssh} bystar@{ipAddr} # ssh://bystar@{ipAddr}:{ssh}")
+    if novnc: print(f"visitUrl http://{ipAddr}:{novnc}/")
+
 ####+BEGIN: b:py3:cs:cmnd/classHead :cmndName "examples" :extent "verify" :ro "noCli" :comment "FrameWrk: CS-Main-Examples" :parsMand "" :parsOpt "" :argsMin 0 :argsMax 0 :pyInv ""
 """ #+begin_org
 *  _[[elisp:(blee:menu-sel:outline:popupMenu)][±]]_ _[[elisp:(blee:menu-sel:navigation:popupMenu)][Ξ]]_ [[elisp:(outline-show-branches+toggle)][|=]] [[elisp:(bx:orgm:indirectBufOther)][|>]] *[[elisp:(blee:ppmm:org-mode-toggle)][|N]]*  CmndSvc-   [[elisp:(outline-show-subtree+toggle)][||]] <<examples>>  *FrameWrk: CS-Main-Examples*  =verify= ro=noCli   [[elisp:(org-cycle)][| ]]
@@ -164,24 +204,38 @@ class examples(cs.Cmnd):
         cmnd = cs.examples.cmndEnter
         literal = cs.examples.execInsert
 
-        forceModePars = od(force=True)
+        # Current containers --- run docker + podman ps -a up front so you can see
+        # what is up just by running the examples menu.
+        cs.examples.menuChapter('=Current Containers=')
+        cmnd('allContainersPs', comment=" # docker + podman ps -a")
+        allContainersPs(cmndOutcome=cmndOutcome).pyCmnd()
 
         # Image layer --- kept out of the main workflow. A single entry opens a
         # dedicated image-construction menu; image builds are infrequent.
         cs.examples.menuChapter('=Build rawBisos Images=')
         cmnd('buildImageExamples', comment=" # dedicated image-construction examples menu")
 
-        # Instance layer --- one section per leaf, each with a plain and a --force variant.
+        # Instance layer --- one section per leaf: the common procContainer commands
+        # inline (up, build), plus a drill-down to the fuller per-leaf example menu.
         for freshDeb in ('12', '13'):
             for platformModel in ('confined', 'sysd-priv', 'sysd-podman'):
-                buildPars = od(freshDeb=freshDeb, platformModel=platformModel)
+                leafPars = od(freshDeb=freshDeb, platformModel=platformModel)
                 cs.examples.menuChapter(f'=Build rawBisos -- deb{freshDeb} {platformModel}=')
-                cmnd('buildContainer_rawBisos',
-                     pars=buildPars,
-                     comment=" # build rawBisos")
-                cmnd('buildContainer_rawBisos',
-                     pars=od(**buildPars, **forceModePars),
-                     comment=" # build rawBisos -- delete existing instance first")
+                cmnd('procContainer',
+                     pars=od(**leafPars, steps=['up']),
+                     comment=" # up vnc")
+                cmnd('procContainer',
+                     pars=od(**leafPars, steps=['up', 'installRawBisos']),
+                     comment=" # build rawBisos (up + install)")
+                cmnd('procContainer',
+                     pars=od(**leafPars, steps=['delete', 'up']),
+                     comment=" # recreate: delete + up")
+                cmnd('procContainer',
+                     pars=od(**leafPars, steps=['delete', 'up', 'installRawBisos']),
+                     comment=" # recreate + build: delete + up + install")
+                cmnd('procContainerExamples',
+                     pars=leafPars,
+                     comment=" # more examples (verify, recreate, delete, status)")
 
 
         cs.examples.menuChapter('=Container Path Obtain=')
@@ -252,13 +306,50 @@ class buildImageExamples(cs.Cmnd):
         return(cmndOutcome)
 
 
-####+BEGIN: b:py3:cs:cmnd/classHead :cmndName "buildContainer_rawBisos" :comment "" :extent "verify" :ro "cli" :parsMand "" :parsOpt "freshDeb platformModel instance startState endResult endVerify endNotify force" :argsMin 0 :argsMax 0 :pyInv ""
+def _rawBuild_stepUp(self, proc, instancePath, imageName):
+    """Ensure the instance is up --- bring it up only if not already running."""
+    psOutcome = b.subProc.WOpW(invedBy=self, log=1).bash(
+        f"cd {instancePath} && ./{proc} -i containerProc_instancePs")
+    if psOutcome.isProblematic():
+        return psOutcome
+    isUp = any(imageName in line and "Up" in line
+               for line in (psOutcome.stdout or "").splitlines())
+    if isUp:
+        return psOutcome
+    return b.subProc.WOpW(invedBy=self, log=1).bash(
+        f"cd {instancePath} && ./{proc} -i containerProc_instanceUp")
+
+def _rawBuild_stepDelete(self, proc, instancePath, imageName):
+    """Stop and remove the instance (replaces the old force flag)."""
+    return b.subProc.WOpW(invedBy=self, log=1).bash(
+        f"cd {instancePath} && ./{proc} -i containerProc_instanceDelete")
+
+def _rawBuild_stepInstallRawBisos(self, proc, instancePath, imageName):
+    """Run ~/raw-bisos/installRawBisos.sh inside the running container."""
+    return b.subProc.WOpW(invedBy=self, log=1).bash(
+        f"cd {instancePath} && ./{proc} -i containerProc_exec_installRawBisos")
+
+def _rawBuild_stepVerifyUp(self, proc, instancePath, imageName):
+    """Verify the running instance (ports, noVNC HTTP, SSH/systemd)."""
+    return b.subProc.WOpW(invedBy=self, log=1).bash(
+        f"cd {instancePath} && ./{proc} -i containerProc_instanceVerify")
+
+# Ordered registry of known steps; anything else is a hard error. Add cap*/verify*
+# handlers here as they are implemented.
+rawBuild_stepTable = {
+    'delete':          _rawBuild_stepDelete,
+    'up':              _rawBuild_stepUp,
+    'installRawBisos': _rawBuild_stepInstallRawBisos,
+    'verifyUp':        _rawBuild_stepVerifyUp,
+}
+
+####+BEGIN: b:py3:cs:cmnd/classHead :cmndName "procContainer" :comment "" :extent "verify" :ro "cli" :parsMand "" :parsOpt "freshDeb platformModel instance steps" :argsMin 0 :argsMax 0 :pyInv ""
 """ #+begin_org
-*  _[[elisp:(blee:menu-sel:outline:popupMenu)][±]]_ _[[elisp:(blee:menu-sel:navigation:popupMenu)][Ξ]]_ [[elisp:(outline-show-branches+toggle)][|=]] [[elisp:(bx:orgm:indirectBufOther)][|>]] *[[elisp:(blee:ppmm:org-mode-toggle)][|N]]*  CmndSvc-   [[elisp:(outline-show-subtree+toggle)][||]] <<buildContainer_rawBisos>>  =verify= parsOpt=freshDeb platformModel instance startState endResult endVerify endNotify force ro=cli   [[elisp:(org-cycle)][| ]]
+*  _[[elisp:(blee:menu-sel:outline:popupMenu)][±]]_ _[[elisp:(blee:menu-sel:navigation:popupMenu)][Ξ]]_ [[elisp:(outline-show-branches+toggle)][|=]] [[elisp:(bx:orgm:indirectBufOther)][|>]] *[[elisp:(blee:ppmm:org-mode-toggle)][|N]]*  CmndSvc-   [[elisp:(outline-show-subtree+toggle)][||]] <<procContainer>>  =verify= parsOpt=freshDeb platformModel instance steps ro=cli   [[elisp:(org-cycle)][| ]]
 #+end_org """
-class buildContainer_rawBisos(cs.Cmnd):
+class procContainer(cs.Cmnd):
     cmndParamsMandatory = [ ]
-    cmndParamsOptional = [ 'freshDeb', 'platformModel', 'instance', 'startState', 'endResult', 'endVerify', 'endNotify', 'force', ]
+    cmndParamsOptional = [ 'freshDeb', 'platformModel', 'instance', 'steps', ]
     cmndArgsLen = {'Min': 0, 'Max': 0,}
 
     @cs.track(fnLoc=True, fnEntry=True, fnExit=True)
@@ -268,62 +359,185 @@ class buildContainer_rawBisos(cs.Cmnd):
              freshDeb: typing.Optional[str]=None,  # Cs Optional Param
              platformModel: typing.Optional[str]=None,  # Cs Optional Param
              instance: typing.Optional[str]=None,  # Cs Optional Param
-             startState: typing.Optional[str]=None,  # Cs Optional Param
-             endResult: typing.Optional[str]=None,  # Cs Optional Param
-             endVerify: typing.Optional[str]=None,  # Cs Optional Param
-             endNotify: typing.Optional[str]=None,  # Cs Optional Param
-             force: typing.Optional[str]=None,  # Cs Optional Param
+             steps: typing.Optional[str]=None,  # Cs Optional Param
     ) -> b.op.Outcome:
 
         failed = b_io.eh.badOutcome
-        callParamsDict = {'freshDeb': freshDeb, 'platformModel': platformModel, 'instance': instance, 'startState': startState, 'endResult': endResult, 'endVerify': endVerify, 'endNotify': endNotify, 'force': force, }
+        callParamsDict = {'freshDeb': freshDeb, 'platformModel': platformModel, 'instance': instance, 'steps': steps, }
         if self.invocationValidate(rtInv, cmndOutcome, callParamsDict, None).isProblematic():
             return failed(cmndOutcome)
         freshDeb = csParam.mappedValue('freshDeb', freshDeb)
         platformModel = csParam.mappedValue('platformModel', platformModel)
         instance = csParam.mappedValue('instance', instance)
-        startState = csParam.mappedValue('startState', startState)
-        endResult = csParam.mappedValue('endResult', endResult)
-        endVerify = csParam.mappedValue('endVerify', endVerify)
-        endNotify = csParam.mappedValue('endNotify', endNotify)
-        force = csParam.mappedValue('force', force)
+        steps = csParam.mappedValue('steps', steps)
 ####+END:
-        if self.cmndDocStr(f""" #+begin_org
-** [[elisp:(org-cycle)][| *CmndDesc:* | ]]  Build a rawBisos docker or podman container from freshDebian
+        if self.cmndDocStr(""" #+begin_org
+** [[elisp:(org-cycle)][| *CmndDesc:* | ]]  Process a container leaf through a serial list of =steps=.
 
-        With =containerPathObtain= use  =freshDeb=, =platformMode= and =instance= parameters to get a full path of a container image  (instancePath)
-        Then in instancePath directory execute /dockerProc.spcs/.
-        If that instance is running and force is 't', stop the container and remove the instance.
-        Do all of that with subproces of /dockerProcs.spcs/.
-        If no instance is running, bring up an instance  through /dockerProcs.spcs/.
-        Then execute a command that runs ~/rawBisos/installRawBisos.sh inside of the container.
+        =steps= is a Python-literal list, run in order, fail-fast. Known steps:
+        =delete= (stop+rm), =up= (bring up if down), =installRawBisos= (run
+        installRawBisos.sh inside), =verifyUp= (containerProc_instanceVerify).
+        Connect URLs are always shown at the end. Examples:
+          -i procContainer --steps='["up", "verifyUp"]'
+          -i procContainer --steps='["delete", "up", "installRawBisos", "verifyUp"]'
         #+end_org """): return(cmndOutcome)
 
         self.captureRunStr(""" #+begin_org
 #+begin_src sh :results output :session shared
-  rawBuildContainer.cs -i buildContainer_rawBisos
+  rawBuildContainer.cs -i procContainer --freshDeb=13 --platformModel=sysd-priv --steps='["up", "verifyUp"]'
+#+end_src
+#+RESULTS:
+        #+end_org """)
+
+        import ast
+
+        if steps is None:
+            b_io.eh.problem_usageError(
+                "procContainer requires --steps, e.g. --steps='[\"up\", \"verifyUp\"]'")
+            return failed(cmndOutcome)
+        try:
+            stepsList = ast.literal_eval(steps) if isinstance(steps, str) else steps
+        except (ValueError, SyntaxError):
+            b_io.eh.problem_usageError(f"--steps must be a Python-literal list; got: {steps!r}")
+            return failed(cmndOutcome)
+        if not isinstance(stepsList, list) or not all(isinstance(s, str) for s in stepsList):
+            b_io.eh.problem_usageError(f"--steps must be a list of strings; got: {stepsList!r}")
+            return failed(cmndOutcome)
+        unknown = [s for s in stepsList if s not in rawBuild_stepTable]
+        if unknown:
+            b_io.eh.problem_usageError(
+                f"unknown step(s) {unknown}; valid: {sorted(rawBuild_stepTable)}")
+            return failed(cmndOutcome)
+
+        # instance is not part of the leaf path; pass a placeholder when unset.
+        if not (results := containerPathObtain(cmndOutcome=cmndOutcome).pyCmnd(
+                freshDeb=freshDeb,
+                platformModel=platformModel,
+                instance=(instance or '0'),
+        ).results): return(b_io.eh.badOutcome(cmndOutcome))
+
+        instancePath = results
+        proc = 'podmanProc.spcs' if platformModel == 'sysd-podman' else 'dockerProc.spcs'
+        imageName = instancePath.name
+
+        print(f"# procContainer {imageName} --- steps: {' -> '.join(stepsList)}")
+
+        # Run the steps serially, fail-fast.
+        for step in stepsList:
+            if rawBuild_stepTable[step](self, proc, instancePath, imageName).isProblematic():
+                b_io.eh.problem_usageError(f"step failed: {step}")
+                return failed(cmndOutcome)
+
+        # Connect info is always shown at the end.
+        rawBuild_connectInfoShow(self, platformModel, instancePath)
+
+        return cmndOutcome
+
+####+BEGIN: b:py3:cs:cmnd/classHead :cmndName "procContainerExamples" :extent "verify" :ro "noCli" :comment "Per-leaf procContainer examples sub-menu" :parsMand "" :parsOpt "freshDeb platformModel" :argsMin 0 :argsMax 0 :pyInv ""
+""" #+begin_org
+*  _[[elisp:(blee:menu-sel:outline:popupMenu)][±]]_ _[[elisp:(blee:menu-sel:navigation:popupMenu)][Ξ]]_ [[elisp:(outline-show-branches+toggle)][|=]] [[elisp:(bx:orgm:indirectBufOther)][|>]] *[[elisp:(blee:ppmm:org-mode-toggle)][|N]]*  CmndSvc-   [[elisp:(outline-show-subtree+toggle)][||]] <<procContainerExamples>>  *Per-leaf procContainer examples sub-menu*  =verify= parsOpt=freshDeb platformModel ro=noCli   [[elisp:(org-cycle)][| ]]
+#+end_org """
+class procContainerExamples(cs.Cmnd):
+    cmndParamsMandatory = [ ]
+    cmndParamsOptional = [ 'freshDeb', 'platformModel', ]
+    cmndArgsLen = {'Min': 0, 'Max': 0,}
+    rtInvConstraints = cs.rtInvoker.RtInvoker.new_noRo() # NO RO From CLI
+
+    @cs.track(fnLoc=True, fnEntry=True, fnExit=True)
+    def cmnd(self,
+             rtInv: cs.RtInvoker,
+             cmndOutcome: b.op.Outcome,
+             freshDeb: typing.Optional[str]=None,  # Cs Optional Param
+             platformModel: typing.Optional[str]=None,  # Cs Optional Param
+    ) -> b.op.Outcome:
+
+        failed = b_io.eh.badOutcome
+        callParamsDict = {'freshDeb': freshDeb, 'platformModel': platformModel, }
+        if self.invocationValidate(rtInv, cmndOutcome, callParamsDict, None).isProblematic():
+            return failed(cmndOutcome)
+        freshDeb = csParam.mappedValue('freshDeb', freshDeb)
+        platformModel = csParam.mappedValue('platformModel', platformModel)
+####+END:
+        self.cmndDocStr(""" #+begin_org
+***** [[elisp:(org-cycle)][| *CmndDesc:* | ]]  procContainer step recipes for one specific leaf.
+        #+end_org """)
+
+        od = collections.OrderedDict
+        cmnd = cs.examples.cmndEnter
+        leafPars = od(freshDeb=freshDeb, platformModel=platformModel)
+
+        cs.examples.menuChapter(f'=procContainer --- deb{freshDeb} {platformModel}=')
+        cmnd('containerPs',
+             pars=leafPars,
+             comment=" # status + connect lines")
+        cmnd('procContainer',
+             pars=od(**leafPars, steps=['up', 'verifyUp']),
+             comment=" # up + verify (no install)")
+        cmnd('procContainer',
+             pars=od(**leafPars, steps=['delete', 'up', 'verifyUp']),
+             comment=" # recreate + verify")
+        cmnd('procContainer',
+             pars=od(**leafPars, steps=['up', 'installRawBisos', 'verifyUp']),
+             comment=" # build rawBisos")
+        cmnd('procContainer',
+             pars=od(**leafPars, steps=['delete', 'up', 'installRawBisos', 'verifyUp']),
+             comment=" # full rebuild (recreate + install)")
+        cmnd('procContainer',
+             pars=od(**leafPars, steps=['delete']),
+             comment=" # delete instance")
+
+        return(cmndOutcome)
+
+####+BEGIN: b:py3:cs:cmnd/classHead :cmndName "containerPs" :comment "" :extent "verify" :ro "cli" :parsMand "" :parsOpt "freshDeb platformModel" :argsMin 0 :argsMax 0 :pyInv ""
+""" #+begin_org
+*  _[[elisp:(blee:menu-sel:outline:popupMenu)][±]]_ _[[elisp:(blee:menu-sel:navigation:popupMenu)][Ξ]]_ [[elisp:(outline-show-branches+toggle)][|=]] [[elisp:(bx:orgm:indirectBufOther)][|>]] *[[elisp:(blee:ppmm:org-mode-toggle)][|N]]*  CmndSvc-   [[elisp:(outline-show-subtree+toggle)][||]] <<containerPs>>  =verify= parsOpt=freshDeb platformModel ro=cli   [[elisp:(org-cycle)][| ]]
+#+end_org """
+class containerPs(cs.Cmnd):
+    cmndParamsMandatory = [ ]
+    cmndParamsOptional = [ 'freshDeb', 'platformModel', ]
+    cmndArgsLen = {'Min': 0, 'Max': 0,}
+
+    @cs.track(fnLoc=True, fnEntry=True, fnExit=True)
+    def cmnd(self,
+             rtInv: cs.RtInvoker,
+             cmndOutcome: b.op.Outcome,
+             freshDeb: typing.Optional[str]=None,  # Cs Optional Param
+             platformModel: typing.Optional[str]=None,  # Cs Optional Param
+    ) -> b.op.Outcome:
+
+        failed = b_io.eh.badOutcome
+        callParamsDict = {'freshDeb': freshDeb, 'platformModel': platformModel, }
+        if self.invocationValidate(rtInv, cmndOutcome, callParamsDict, None).isProblematic():
+            return failed(cmndOutcome)
+        freshDeb = csParam.mappedValue('freshDeb', freshDeb)
+        platformModel = csParam.mappedValue('platformModel', platformModel)
+####+END:
+        if self.cmndDocStr(""" #+begin_org
+** [[elisp:(org-cycle)][| *CmndDesc:* | ]]  Status of one leaf's instance --- UP (with connect URLs) or not.
+
+        If the instance is up, acknowledge it and show the clickable ssh/vnc/noVNC
+        lines; otherwise just report that it is not up.
+        #+end_org """): return(cmndOutcome)
+
+        self.captureRunStr(""" #+begin_org
+#+begin_src sh :results output :session shared
+  rawBuildContainer.cs -i containerPs --freshDeb=13 --platformModel=sysd-priv
 #+end_src
 #+RESULTS:
         #+end_org """)
 
 
+        # instance is irrelevant to the leaf path; pass a placeholder.
         if not (results := containerPathObtain(cmndOutcome=cmndOutcome).pyCmnd(
                 freshDeb=freshDeb,
                 platformModel=platformModel,
-                instance=instance,
+                instance='0',
         ).results): return(b_io.eh.badOutcome(cmndOutcome))
 
         instancePath = results
-
-        # startState, endResult, endVerify and endNotify are placeholders for later.
-
-        # Each leaf ships a planted CS: docker leaves -> dockerProc.spcs,
-        # podman (rootless-sysd) leaves -> podmanProc.spcs. From the CSXU's
-        # perspective the tree is irrelevant --- we always operate at the leaf.
         proc = 'podmanProc.spcs' if platformModel == 'sysd-podman' else 'dockerProc.spcs'
         imageName = instancePath.name
 
-        # Ps (engine ps -a filtered to this leaf) tells us whether an instance is up.
         psOutcome = b.subProc.WOpW(invedBy=self, log=1).bash(
             f"cd {instancePath} && ./{proc} -i containerProc_instancePs")
         if psOutcome.isProblematic(): return failed(cmndOutcome)
@@ -332,24 +546,45 @@ class buildContainer_rawBisos(cs.Cmnd):
             for line in (psOutcome.stdout or "").splitlines()
         )
 
-        # Only tear an instance down when it is up and force was requested.
-        # PyCS delivers param values as strings; the literal True arrives as "True".
-        if isUp and force == "True":
-            if b.subProc.WOpW(invedBy=self, log=1).bash(
-                    f"cd {instancePath} && ./{proc} -i containerProc_instanceDelete").isProblematic():
-                return failed(cmndOutcome)
-            isUp = False
+        if isUp:
+            print(f"# {imageName} is UP")
+            rawBuild_connectInfoShow(self, platformModel, instancePath)
+        else:
+            print(f"# {imageName} is NOT up")
 
-        # Bring an instance up only when none is running (force is irrelevant when down).
-        if not isUp:
-            if b.subProc.WOpW(invedBy=self, log=1).bash(
-                    f"cd {instancePath} && ./{proc} -i containerProc_instanceUp").isProblematic():
-                return failed(cmndOutcome)
+        return cmndOutcome
 
-        # Run ~/raw-bisos/installRawBisos.sh inside the running container.
-        if b.subProc.WOpW(invedBy=self, log=1).bash(
-                f"cd {instancePath} && ./{proc} -i containerProc_exec_installRawBisos").isProblematic():
+####+BEGIN: b:py3:cs:cmnd/classHead :cmndName "allContainersPs" :comment "" :extent "verify" :ro "cli" :parsMand "" :parsOpt "" :argsMin 0 :argsMax 0 :pyInv ""
+""" #+begin_org
+*  _[[elisp:(blee:menu-sel:outline:popupMenu)][±]]_ _[[elisp:(blee:menu-sel:navigation:popupMenu)][Ξ]]_ [[elisp:(outline-show-branches+toggle)][|=]] [[elisp:(bx:orgm:indirectBufOther)][|>]] *[[elisp:(blee:ppmm:org-mode-toggle)][|N]]*  CmndSvc-   [[elisp:(outline-show-subtree+toggle)][||]] <<allContainersPs>>  =verify= ro=cli   [[elisp:(org-cycle)][| ]]
+#+end_org """
+class allContainersPs(cs.Cmnd):
+    cmndParamsMandatory = [ ]
+    cmndParamsOptional = [ ]
+    cmndArgsLen = {'Min': 0, 'Max': 0,}
+
+    @cs.track(fnLoc=True, fnEntry=True, fnExit=True)
+    def cmnd(self,
+             rtInv: cs.RtInvoker,
+             cmndOutcome: b.op.Outcome,
+    ) -> b.op.Outcome:
+
+        failed = b_io.eh.badOutcome
+        callParamsDict = {}
+        if self.invocationValidate(rtInv, cmndOutcome, callParamsDict, None).isProblematic():
             return failed(cmndOutcome)
+####+END:
+        if self.cmndDocStr(""" #+begin_org
+** [[elisp:(org-cycle)][| *CmndDesc:* | ]]  Overview of all containers --- docker and podman =ps -a=.
+
+        Runs =ps -a= for each engine that is installed (docker misses podman
+        containers and vice versa), so you see everything at a glance.
+        #+end_org """): return(cmndOutcome)
+
+        for engine in ('docker', 'podman'):
+            print(f"# {engine} ps -a")
+            b.subProc.WOpW(invedBy=self, log=1).bash(
+                f"command -v {engine} >/dev/null 2>&1 && {engine} ps -a || echo '({engine} not installed)'")
 
         return cmndOutcome
 

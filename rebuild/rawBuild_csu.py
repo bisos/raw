@@ -166,13 +166,13 @@ def commonParamsSpecify(
         argparseLongOpt='--endNotify',
     )
     csParams.parDictAdd(
-        parName='force',
-        parDescription="Force. When True, delete an existing running instance before bringing it up",
+        parName='steps',
+        parDescription="Steps. A Python-literal list of pipeline steps, e.g. [\"up\", \"verifyUp\"]",
         parDataType=None,
         parDefault=None,
-        parChoices=[True,],
+        parChoices=None,
         argparseShortOpt=None,
-        argparseLongOpt='--force',
+        argparseLongOpt='--steps',
     )
     csParams.parDictAdd(
         parName='noCache',

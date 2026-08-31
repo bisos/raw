@@ -30,75 +30,102 @@ Fill in the sections below when asked to update, following the structure provide
 Top-level orchestrators for rebuilding Raw-BISOS from scratch across three
 platforms live here:
 
-- =rawBuildContainer.cs= --- Docker/Podman containers. Functional and *minimally
-  tested/used* (buildContainer_rawBisos run end-to-end on the deb13 sysd-priv leaf).
-- =rawBuildKvm.cs= --- KVM guests (VAG). Starting point; *not yet tested* --- the
+- =rawBuildContainer.cs= --- Docker/Podman containers. The main command is now
+  =procContainer= driven by a =steps= pipeline (see below). *IMPORTANT: the
+  procContainer refactor is implemented but NOT yet re-verified* --- the last
+  pyflakes/run check was interrupted. Treat as pending verification. (The
+  pre-refactor flow it replaces was minimally tested on the deb13 sysd-priv leaf.)
+- =rawBuildKvm.cs= --- KVM guests (VAG). Starting point; *not yet tested* ---
   build body is a placeholder.
-- =rawBuildBox.cs= --- boxes (raw metal). Starting point; *not yet tested* --- the
+- =rawBuildBox.cs= --- boxes (raw metal). Starting point; *not yet tested* ---
   build body is a placeholder.
 
-=rawBuild_csu.py= is the shared CSU (params); =README.org= is GitHub-presentable
-and documents all three.
+=rawBuild_csu.py= is the shared CSU (params); =README.org= documents all three
+(README still describes the OLD buildContainer_rawBisos/upContainer_vnc/force ---
+it needs updating to the procContainer/steps model).
 
 * Architecture
 
-- =rawBuild_csu.py= :: shared params via commonParamsSpecify --- =freshDeb=
-  (12/13), =platformModel= (confined/sysd-priv/sysd-podman), =instance=, =force=,
-  =noCache=, plus placeholders (=startState=, =endResult=, =endVerify=, =endNotify=).
-- =rawBuildContainer.cs= :: layered over =bxObjects/bro_dockerfiles=. Two layers:
-  - Instance layer --- =buildContainer_rawBisos= (main): resolve leaf via
-    =containerPathObtain= -> Ps -> (force) delete -> up -> exec installRawBisos.
-  - Image layer --- =buildImage_rawBisos= (+ =noCache=), behind the
-    =buildImageExamples= sub-menu to keep the main menu uncluttered.
-  - =containerPathObtain= :: maps (freshDeb, platformModel) to the leaf path and
-    verifies it exists.
-  - Each leaf is driven by its planted CS: =dockerProc.spcs= (docker) /
-    =podmanProc.spcs= (podman, sysd-podman) selected by platformModel.
+- =rawBuild_csu.py= :: shared params --- =freshDeb= (12/13), =platformModel=
+  (confined/sysd-priv/sysd-podman), =instance=, =steps=, =noCache=. (=force= was
+  REMOVED --- replaced by the =delete= step. =startState=/=endResult=/=endVerify=/
+  =endNotify= remain defined but unused --- superseded by =steps=.)
+- =rawBuildContainer.cs= :: layered over =bxObjects/bro_dockerfiles=.
+  - *Instance/content layer --- =procContainer= (main command).* Takes
+    =--steps='[...]'= (a Python-literal list), ast.literal_eval'd, validated
+    against =rawBuild_stepTable=, run *serially, fail-fast*. Connect URLs are
+    *always* shown at the end. Empty/non-list/unknown step => hard error.
+  - *Step registry =rawBuild_stepTable=* (module-level dict). Implemented steps:
+    =delete= (instanceDelete stop+rm), =up= (Ps then instanceUp if down),
+    =installRawBisos= (exec installRawBisos.sh inside), =verifyUp=
+    (containerProc_instanceVerify). Future steps (=verifyRawBisos=, =capRawBisos=,
+    =verifyCapRawBisos=) are NOT yet registered --- requesting them hard-errors
+    until their handlers are added to the table.
+  - =containerPs= :: per-leaf status --- UP (+ connect lines) or NOT up.
+  - =allContainersPs= :: docker + podman =ps -a= overview; auto-invoked at the top
+    of the =examples= menu so running =-i examples= shows what is up.
+  - *Image layer --- =buildImage_rawBisos= (+ =noCache=)*, behind the
+    =buildImageExamples= sub-menu. Kept separate from =steps=.
+  - =containerPathObtain= :: (freshDeb, platformModel) -> leaf path (+ exists guard).
+  - =rawBuild_connectInfoShow(self, platformModel, instancePath)= :: prints runnable
+    connect lines --- =vncviewer IP:port # vnc://...=, =ssh -p port bystar@IP #
+    ssh://...=, =visitUrl http://IP:port/= (visitUrl TBD). Ports read live from
+    =<engine> port <name>=; host IP = =hostname -I= first token; graceful "not
+    running" when no ports.
+  - Leaf driver: =dockerProc.spcs= / =podmanProc.spcs= chosen by platformModel.
 - =rawBuildKvm.cs= :: =buildKvm_rawBisos= --freshDeb; bpoId =pmp_VAG-deb{12,13}_=;
   intended to drive =sysCharGuestMaterialize.sh= (placeholder body).
 - =rawBuildBox.cs= :: =buildBox_rawBisos= --freshDeb + destination IP as positional
   arg; intended to drive =sysCharBoxMaterialize.sh= (placeholder body).
-- Cross-repo fix applied :: =bisos.dockerProc= containerProc_exec_installRawBisos
-  (in bisos-pip/dockerProc) --- run as =-u bystar= (not root), drop =-it=
-  (non-interactive), and propagate exit status (was masked as always-Success).
+- Cross-repo fixes :: (1) =bisos.dockerProc= containerProc_exec_installRawBisos ---
+  run as =-u bystar=, drop =-it=, propagate exit status. (2) =dev-shm-resize.service=
+  (systemd remount /dev/shm=2G for Chrome) added to the *privileged* deb12/deb13
+  leaves in =bro_dockerfiles= (rootless-podman leaves intentionally skipped --- no
+  CAP_SYS_ADMIN). Recorded in the docker Blee panel.
 
-* What Works
+* What Works (verified live)
 
-- =rawBuildContainer.cs -i buildContainer_rawBisos --freshDeb="13"
-  --platformModel="sysd-priv" --force="True"= --- run end-to-end (Ps -> delete ->
-  up -> installRawBisos). *Minimally tested* on that one leaf.
-- =containerPathObtain= verified to reproduce real =bro_dockerfiles= paths for all
-  three platformModels; missing-path guard fires correctly.
-- Examples menus render for all three files; both container sub-menus
-  (=examples=, =buildImageExamples=) list the expected matrices.
-- All files load and are pyflakes-clean (modulo benign unused-import warnings).
+- =containerPs= --- UP leaf shows the 3 connect lines; DOWN leaf reports NOT up.
+- =allContainersPs= --- docker + podman =ps -a=, each engine guarded by =command -v=.
+- =rawBuild_connectInfoShow= --- new runnable-line format verified against real
+  =docker port= output.
+- =containerPathObtain= --- reproduces real =bro_dockerfiles= paths for all three
+  platformModels; missing-path guard fires.
 
-* What Is Untested
+* What Is Untested / Pending
 
-- =rawBuildKvm.cs= and =rawBuildBox.cs= :: *need testing* --- their build bodies are
-  placeholders (=b_io.ann.note ... not yet implemented=); no materialization wired.
-- =rawBuildContainer.cs= :: only the deb13/sysd-priv leaf exercised; the other 5
-  leaves (deb12, confined, sysd-podman) and =buildImage_rawBisos= /
-  =buildImageExamples= are unrun.
-- The box build flow itself is unresolved: which =sysCharBoxMaterialize.sh= verb
-  sequence means "rebuild Raw-BISOS on metal" is not yet confirmed.
-- Verification/assertion of build success is not wired (=endVerify= placeholder;
-  =containerProc_instanceVerify= not called).
+- *=procContainer= itself* :: implemented but NOT run since the refactor (the
+  verification bash was interrupted). FIRST THING to do: pyflakes + run
+  =-i procContainer --freshDeb=13 --platformModel=confined --steps='["up","verifyUp"]'=
+  and the unknown-step hard-error path.
+- =rawBuildKvm.cs= / =rawBuildBox.cs= :: placeholders; need real materialization.
+- Box build flow unresolved: which =sysCharBoxMaterialize.sh= verb sequence = "rebuild
+  on metal".
+- 5 of 6 container leaves + image builds largely unrun; dev-shm resize needs image
+  rebuild + test.
 
 * Key Design Decisions
 
-- Two-layer container model (image vs instance) --- different change cadences;
-  =force= means only "delete existing instance", not "rebuild image".
-- Image construction kept out of the main workflow (behind =buildImageExamples=).
-- Param values use Python-literal syntax (=True=, not ='t'=). Note: PyCS delivers
-  CLI values as strings, so code compares to ="True"=.
-- Sibling CSU imported as =import rawBuild_csu= (not =from . import=) because =.cs=
-  files run directly as scripts (no parent package); csuList entry is =rawBuild_csu=.
-  Fixed the =csuListProc= dblock generator to emit bare =import= for dot-less names.
-- =instance= is accepted but not part of the container path (future: per-instance
-  subdir).
-- KVM: single layer, VAG only, {deb12, deb13}. Box: destination IP is a positional
-  argument, {deb12, deb13}.
+- *=procContainer= + =steps= pipeline* replaces =buildContainer_rawBisos= AND
+  =upContainer_vnc=. One verb; the pipeline expresses intent. Serial, fail-fast.
+- *=delete= step replaces the =force= flag* --- intent lives in the pipeline, e.g.
+  =["delete","up","installRawBisos","verifyUp"]= vs =["up","verifyUp"]=.
+- Param named =steps= (NOT =extent= --- that collides with the cs.Cmnd classHead
+  =:extent=). Unknown/empty/non-list steps are a hard error (=problem_usageError=).
+- =steps= is the first param that truly needs =ast.literal_eval= (a list). Other
+  literal params (=noCache=True=) still arrive as the string ="True"=.
+- Connect info (=rawBuild_connectInfoShow=) is ALWAYS shown at pipeline end.
+- Two-layer model retained: image (=buildImage_rawBisos=/=buildImageExamples=) stays
+  separate from the instance/content =steps= pipeline.
+- =containerPs= stays as a distinct read-only status command.
+- Sibling CSU imported as =import rawBuild_csu= (=.cs= runs as a script, no parent
+  package); csuListProc dblock generator fixed to emit bare =import= for dot-less names.
+- =instance= accepted but not part of the leaf path (future: per-instance subdir).
+- KVM: single layer, VAG only, {deb12, deb13}. Box: destination IP positional arg.
+- =bisos.b= gotcha: =b.subProc.WOpW(invedBy=self)= SHARES the cmnd's one
+  =cmndOutcome=; a later =.bash()= overwrites an earlier one's stdout. Always read
+  each result inline before the next call. (A docstring note in bisos.b was proposed
+  but is currently paused.)
 
 # Local Variables:
 # eval: (setq-local toc-org-max-depth 4)
