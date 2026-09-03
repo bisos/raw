@@ -85,14 +85,53 @@ In =rawBuildContainer.cs=:
   errors. (pyflakes not available in this venv to double-check; remaining
   editor lint warnings are pre-existing unresolved =bisos.*= imports and an
   unrelated =Path= typing nit in =containerPathObtain=, unaffected by this change.)
-- NOT done (out of scope for [[one]]): actual =sysCbmManage.cs= script (that's
-  [[two]]), and no live/integration run of the new steps against a real
-  container (not yet re-verified end-to-end, per =AI-DevStatus.org= caveat on
-  =procContainer=).
+
+*** Follow-up fixes after live testing (same session)
+
+- *Bug found in 'down' step* :: =containerProc_instanceDown= (in the separate
+  =bxRepos/bisos-pip/dockerProc= repo, =containerProc_csu.py=) dispatched to
+  =docker compose ... down= on the docker engine --- which STOPS AND REMOVES
+  the container + network, contradicting its own docstring ("does NOT
+  remove") and inconsistent with the podman branch (=podman stop=, correct).
+  Fixed upstream: docker branch now runs =docker compose ... stop= (matching
+  podman's plain stop); docstring/=opResults= message updated to match.
+  =rawBuildContainer.cs='s =_rawBuild_stepDown= was left calling the (now
+  fixed) =containerProc_instanceDown= spcs verb, as originally intended.
+  Verified live: =down= then =up= reused the SAME container (same container
+  ID, =Exited (130)= -> =Started=, no Removing/Creating/Network messages).
+- *Bug found in 'rawBisosCBMs' step* :: =sysCbmManage.cs= (part of
+  =bisos.capability=, already installed in the image at e.g.
+  =/bisos/venv/py3/bisos3/bin/sysCbmManage.cs=) was not found on PATH when
+  invoked as =docker exec -u bystar <container> bash -lc 'sysCbmManage.cs ...'=.
+  Root cause: bystar's =~/.bashrc= has the standard Debian guard
+  (=case $- in *i*) ;; *) return;; esac=) which returns immediately for
+  NON-interactive shells --- =bash -l -c= is login-but-non-interactive, so
+  =.profile='s sourcing of =.bashrc= hits the guard before reaching the
+  =PIPX_BIN_DIR=/other =PATH= exports further down. (=installRawBisos.sh=
+  never hit this because it's invoked via explicit relative path
+  (=cd ~/raw-bisos && bash installRawBisos.sh=), not PATH lookup.)
+  Fixed in =_rawBuild_stepRawBisosCBMs=: =bash -lc= -> =bash -ic= (forced
+  interactive), so the guard passes and PATH is correctly populated. Verified
+  live, both directly (=docker exec ... bash -ic 'which sysCbmManage.cs'=
+  resolves; =sysCbmManage.cs -i fullyMaterialize= exits 0) and end-to-end
+  through the actual command: =rawBuildContainer.cs -i procContainer
+  --freshDeb=13 --platformModel=sysd-priv --steps='["rawBisosCBMs"]'=
+  completed with =visited=11 failed=0 skipped=0= and printed the connect-info
+  banner (only reached if the step succeeded). The harmless
+  "cannot set terminal process group" / "no job control" stderr warnings from
+  =-i= without a tty do not affect exit status.
+- Both external-repo and local changes compile clean
+  (=python3 -m py_compile=) on =containerProc_csu.py= and
+  =rawBuildContainer.cs=.
+- NOT done (out of scope for [[one]]): [[two]] (=sysCbmManage.cs= itself is
+  separately maintained/already implemented in =bisos.capability=, per the
+  user); full 6-branch (freshDeb x platformModel) live testing of the whole
+  pipeline (only deb13/sysd-priv exercised so far).
 ** -
 SCHEDULED: <2026-09-02 Wed 15:52>
 We will develope those at /bxRepos/bisos-pip/capability/AI-WorkPlan.org
 ----- AI Results: ------
+
 
 ** TODO [#A] Add =--leaf==sysd13-priv  Instead of -i procContainer --freshDeb="13" --platformModel="sysd-podman"
 SCHEDULED: <2026-08-31 Mon 09:59>

@@ -349,15 +349,22 @@ def _rawBuild_stepRawBisosBase(self, proc, instancePath, imageName):
 
 def _rawBuild_stepRawBisosCBMs(self, proc, instancePath, imageName):
     """Run sysCbmManage.cs -i fullyMaterialize inside the running container, as
-    the bystar user (nvm lives in the bystar account, so a login shell is used).
+    the bystar user.
 
-    NOTE: sysCbmManage.cs itself is developed under
-    bxRepos/bisos-pip/capability/py3/bin/sysCbmManage.cs (separate TODO); this
-    step will fail with 'command not found' until that lands.
+    PATH gotcha: bystar's ~/.bashrc has the standard Debian guard
+    ('case $- in *i*) ;; *) return;; esac') that skips the rest of .bashrc
+    (where PIPX_BIN_DIR/other PATH exports live, incl. nvm) for
+    NON-interactive shells. 'bash -l -c ...' (login, non-interactive) sources
+    ~/.profile -> ~/.bashrc, but the guard fires immediately, so PATH ends up
+    minimal and 'sysCbmManage.cs' is not found. Forcing an interactive shell
+    with 'bash -i -c ...' makes the guard pass and PATH gets populated (verified
+    live: resolves to /bisos/venv/py3/bisos3/bin/sysCbmManage.cs). '-i' without
+    a tty prints harmless "cannot set terminal process group" / "no job
+    control" warnings to stderr; exit status is unaffected.
     """
     engine = 'podman' if 'podmanProc' in proc else 'docker'
     return b.subProc.WOpW(invedBy=self, log=1).bash(
-        f"{engine} exec -u bystar {imageName} bash -lc 'sysCbmManage.cs -i fullyMaterialize'")
+        f"{engine} exec -u bystar {imageName} bash -ic 'sysCbmManage.cs -i fullyMaterialize'")
 
 def _rawBuild_stepVerifyUp(self, proc, instancePath, imageName):
     """Verify the running instance (ports, noVNC HTTP, SSH/systemd)."""
