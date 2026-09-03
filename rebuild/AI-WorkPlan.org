@@ -48,6 +48,9 @@ Prompt the user to confirm that the desired/appropriate model (/model) is being 
 * Stage 1: Get ./rawBuildContainer.cs to also run cbmManage.cs
 
 Goal: Start from freshDebian -> rawBisosBase -> rawBisosCBMs
+* Stage 1: Common Usage for rawBuildContainer.cs
+
+Goal: Make sure that common usage is convenient and well adopted
 
 
 * Stage 1 TODOs
@@ -91,6 +94,73 @@ SCHEDULED: <2026-09-02 Wed 15:52>
 We will develope those at /bxRepos/bisos-pip/capability/AI-WorkPlan.org
 ----- AI Results: ------
 
+** TODO [#A] Add =--leaf==sysd13-priv  Instead of -i procContainer --freshDeb="13" --platformModel="sysd-podman"
+SCHEDULED: <2026-08-31 Mon 09:59>
+This will make the examples a lot easier to read.
+----- AI Results: ------
+
+** TODO [#A] Add literal("docker ps -a")
+SCHEDULED: <2026-08-31 Mon 09:59>
+And also podman.
+----- AI Results: ------
+
+** TODO [#A] Create alias for steps.
+SCHEDULED: <2026-08-31 Mon 09:59>
+fullVerifyRawBisos = delete, up, install, verify
+Add stepsExamples -- Would list steps, short description and also aliases. Perhaps as a table.
+----- AI Results: ------
+
+** TODO [#A] Test out all 6 branches.
+SCHEDULED: <2026-08-31 Mon 09:59>
+After aliases are available
+----- AI Results: ------
+
+** -
+
+* Stage 2: Design and implement Capabilities Steps and Verification
+
+Goal: Put in place a common set of abstraction for Capabilities as steps and verfication
+
+* Stage 2 TODOs
+** +
+** TODO [#A] At the end of rawBisosBasic, do a down+up+runAsBystarCaps.
+SCHEDULED: <2026-08-31 Mon 09:59>
+----- AI Results: ------
+
+** TODO [#A] Add minimal starting points for verification of every step
+SCHEDULED: <2026-08-31 Mon 09:59>
+----- AI Results: ------
+
+** TODO [#A] Test out Capabilities and Verifications
+SCHEDULED: <2026-08-31 Mon 09:59>
+----- AI Results: ------
+
+** -
+
+* Stage 3: Apply the Container structure to Guest VMs and Boxes
+
+Goal: Make sure we have a common model and move code from csxu-s to libs.
+
+
+* Stage 3 TODOs
+** +
+** TODO [#A] The concept of steps should become generic
+SCHEDULED: <2026-08-31 Mon 09:59>
+----- AI Results: ------
+
+** -
+
+
+* Stage 4: Optimize rebuild speed
+
+Goal: Optionally have all the apt-get happen in the original image
+
+
+* Stage 4 TODOs
+** +
+** TODO [#A] Create larger images to speed up rebuild for verification
+SCHEDULED: <2026-08-31 Mon 09:59>
+----- AI Results: ------
 
 ** -
 
