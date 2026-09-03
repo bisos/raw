@@ -225,14 +225,17 @@ class examples(cs.Cmnd):
                      pars=od(**leafPars, steps=['up']),
                      comment=" # up vnc")
                 cmnd('procContainer',
-                     pars=od(**leafPars, steps=['up', 'installRawBisos']),
+                     pars=od(**leafPars, steps=['up', 'rawBisosBase']),
                      comment=" # build rawBisos (up + install)")
                 cmnd('procContainer',
                      pars=od(**leafPars, steps=['delete', 'up']),
                      comment=" # recreate: delete + up")
                 cmnd('procContainer',
-                     pars=od(**leafPars, steps=['delete', 'up', 'installRawBisos']),
+                     pars=od(**leafPars, steps=['delete', 'up', 'rawBisosBase']),
                      comment=" # recreate + build: delete + up + install")
+                cmnd('procContainer',
+                     pars=od(**leafPars, steps=['delete', 'up', 'rawBisosBase', 'down', 'up', 'rawBisosCBMs']),
+                     comment=" # full: recreate + install + reconnect (groups) + CBMs")
                 cmnd('procContainerExamples',
                      pars=leafPars,
                      comment=" # more examples (verify, recreate, delete, status)")
@@ -319,15 +322,42 @@ def _rawBuild_stepUp(self, proc, instancePath, imageName):
     return b.subProc.WOpW(invedBy=self, log=1).bash(
         f"cd {instancePath} && ./{proc} -i containerProc_instanceUp")
 
+def _rawBuild_stepDown(self, proc, instancePath, imageName):
+    """Stop (but do not remove) the instance --- e.g. so groups created by
+    rawBisosBase take effect on the next 'up'.
+
+    Uses the spcs =containerProc_instanceDown= verb (bisos.dockerProc). This
+    used to incorrectly run 'docker compose down' (stop+remove) on the docker
+    engine, contradicting its own docstring and the podman branch's plain
+    'stop'; that bug has been fixed upstream in
+    bxRepos/bisos-pip/dockerProc/py3/bisos/dockerProc/containerProc_csu.py to
+    use 'docker compose stop' instead, matching the intended vocabulary
+    (up/down/delete) where 'down' never removes.
+    """
+    return b.subProc.WOpW(invedBy=self, log=1).bash(
+        f"cd {instancePath} && ./{proc} -i containerProc_instanceDown")
+
 def _rawBuild_stepDelete(self, proc, instancePath, imageName):
     """Stop and remove the instance (replaces the old force flag)."""
     return b.subProc.WOpW(invedBy=self, log=1).bash(
         f"cd {instancePath} && ./{proc} -i containerProc_instanceDelete")
 
-def _rawBuild_stepInstallRawBisos(self, proc, instancePath, imageName):
+def _rawBuild_stepRawBisosBase(self, proc, instancePath, imageName):
     """Run ~/raw-bisos/installRawBisos.sh inside the running container."""
     return b.subProc.WOpW(invedBy=self, log=1).bash(
         f"cd {instancePath} && ./{proc} -i containerProc_exec_installRawBisos")
+
+def _rawBuild_stepRawBisosCBMs(self, proc, instancePath, imageName):
+    """Run sysCbmManage.cs -i fullyMaterialize inside the running container, as
+    the bystar user (nvm lives in the bystar account, so a login shell is used).
+
+    NOTE: sysCbmManage.cs itself is developed under
+    bxRepos/bisos-pip/capability/py3/bin/sysCbmManage.cs (separate TODO); this
+    step will fail with 'command not found' until that lands.
+    """
+    engine = 'podman' if 'podmanProc' in proc else 'docker'
+    return b.subProc.WOpW(invedBy=self, log=1).bash(
+        f"{engine} exec -u bystar {imageName} bash -lc 'sysCbmManage.cs -i fullyMaterialize'")
 
 def _rawBuild_stepVerifyUp(self, proc, instancePath, imageName):
     """Verify the running instance (ports, noVNC HTTP, SSH/systemd)."""
@@ -337,10 +367,12 @@ def _rawBuild_stepVerifyUp(self, proc, instancePath, imageName):
 # Ordered registry of known steps; anything else is a hard error. Add cap*/verify*
 # handlers here as they are implemented.
 rawBuild_stepTable = {
-    'delete':          _rawBuild_stepDelete,
-    'up':              _rawBuild_stepUp,
-    'installRawBisos': _rawBuild_stepInstallRawBisos,
-    'verifyUp':        _rawBuild_stepVerifyUp,
+    'delete':       _rawBuild_stepDelete,
+    'up':           _rawBuild_stepUp,
+    'down':         _rawBuild_stepDown,
+    'rawBisosBase': _rawBuild_stepRawBisosBase,
+    'rawBisosCBMs': _rawBuild_stepRawBisosCBMs,
+    'verifyUp':     _rawBuild_stepVerifyUp,
 }
 
 ####+BEGIN: b:py3:cs:cmnd/classHead :cmndName "procContainer" :comment "" :extent "verify" :ro "cli" :parsMand "" :parsOpt "freshDeb platformModel instance steps" :argsMin 0 :argsMax 0 :pyInv ""
@@ -375,11 +407,14 @@ class procContainer(cs.Cmnd):
 ** [[elisp:(org-cycle)][| *CmndDesc:* | ]]  Process a container leaf through a serial list of =steps=.
 
         =steps= is a Python-literal list, run in order, fail-fast. Known steps:
-        =delete= (stop+rm), =up= (bring up if down), =installRawBisos= (run
-        installRawBisos.sh inside), =verifyUp= (containerProc_instanceVerify).
+        =delete= (stop+rm), =up= (bring up if down), =down= (stop, without
+        removing --- so groups created by =rawBisosBase= take effect on the next
+        =up=), =rawBisosBase= (run installRawBisos.sh inside), =rawBisosCBMs=
+        (run sysCbmManage.cs -i fullyMaterialize as bystar), =verifyUp=
+        (containerProc_instanceVerify).
         Connect URLs are always shown at the end. Examples:
           -i procContainer --steps='["up", "verifyUp"]'
-          -i procContainer --steps='["delete", "up", "installRawBisos", "verifyUp"]'
+          -i procContainer --steps='["delete", "up", "rawBisosBase", "down", "up", "rawBisosCBMs"]'
         #+end_org """): return(cmndOutcome)
 
         self.captureRunStr(""" #+begin_org
@@ -477,11 +512,14 @@ class procContainerExamples(cs.Cmnd):
              pars=od(**leafPars, steps=['delete', 'up', 'verifyUp']),
              comment=" # recreate + verify")
         cmnd('procContainer',
-             pars=od(**leafPars, steps=['up', 'installRawBisos', 'verifyUp']),
+             pars=od(**leafPars, steps=['up', 'rawBisosBase', 'verifyUp']),
              comment=" # build rawBisos")
         cmnd('procContainer',
-             pars=od(**leafPars, steps=['delete', 'up', 'installRawBisos', 'verifyUp']),
+             pars=od(**leafPars, steps=['delete', 'up', 'rawBisosBase', 'verifyUp']),
              comment=" # full rebuild (recreate + install)")
+        cmnd('procContainer',
+             pars=od(**leafPars, steps=['delete', 'up', 'rawBisosBase', 'down', 'up', 'rawBisosCBMs']),
+             comment=" # full: recreate + install + reconnect (groups) + CBMs")
         cmnd('procContainer',
              pars=od(**leafPars, steps=['delete']),
              comment=" # delete instance")

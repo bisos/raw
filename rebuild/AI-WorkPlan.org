@@ -45,17 +45,53 @@ Prompt the user to confirm that the desired/appropriate model (/model) is being 
 ----- AI Results: ------
 ** -
 
-* Stage 1: Description of This Stage Comes Here
+* Stage 1: Get ./rawBuildContainer.cs to also run cbmManage.cs
 
-Goal: Describe what the goal of this stage is.
+Goal: Start from freshDebian -> rawBisosBase -> rawBisosCBMs
 
 
 * Stage 1 TODOs
 ** +
-** TODO [#A] Example of a work-item for AI :ai:
-SCHEDULED: <2026-06-09 Tue>
-Description of a work-item
+** DONE [#A] <<one>> Extend --steps="['delete', 'up', 'installRawBisos']" to --steps="['delete', 'up', 'installRawBisos', 'down', 'up', 'rawBisosCBMs']" :aiAndMe:
+SCHEDULED: <2026-09-02 Wed 15:52>
+We need to add 'down' as a step similar to 'up'.
+The 'down'+'up'  results in the groups that were created during the 'installRawBisos' to become effective.
+Rename installRawBisos to rawBisosBase.
+We then add a new step called 'rawBisosCBMs'.
+rawBisosCBMs step runs cbmSysManage.cs -i fullyMaterialize as bystar user (nvm is in the bystar account)
+/bxRepos/bisos-pip/capability/py3/bin/sysCbmManage.cs will be developed nex in [[two]].
 ----- AI Results: ------
+In =rawBuildContainer.cs=:
+- Added =_rawBuild_stepDown= (new 'down' step) calling =containerProc_instanceDown=,
+  mirroring the existing 'up' step's use of =containerProc_instanceUp=.
+- Renamed step 'installRawBisos' -> 'rawBisosBase' (function
+  =_rawBuild_stepInstallRawBisos= -> =_rawBuild_stepRawBisosBase=); updated
+  =rawBuild_stepTable= and all example menu entries (=examples=,
+  =procContainerExamples=) accordingly. The underlying script name
+  (=installRawBisos.sh=) and spcs command (=containerProc_exec_installRawBisos=)
+  were intentionally left unchanged --- only the pipeline step key/handler moved.
+- Added new step 'rawBisosCBMs' (=_rawBuild_stepRawBisosCBMs=) which execs
+  =sysCbmManage.cs -i fullyMaterialize= as user =bystar= via a login shell
+  (=bash -lc=, so nvm in bystar's profile is picked up), directly through
+  =docker exec=/=podman exec= (engine derived from =proc=). This step will fail
+  with "command not found" until =sysCbmManage.cs= is developed in [[two]] ---
+  documented in the function's docstring.
+- Updated =procContainer='s =cmndDocStr= and example menus to reflect the full
+  pipeline =['delete','up','rawBisosBase','down','up','rawBisosCBMs']=.
+- Verified with =python3 -m py_compile rawBuildContainer.cs= --- OK, no syntax
+  errors. (pyflakes not available in this venv to double-check; remaining
+  editor lint warnings are pre-existing unresolved =bisos.*= imports and an
+  unrelated =Path= typing nit in =containerPathObtain=, unaffected by this change.)
+- NOT done (out of scope for [[one]]): actual =sysCbmManage.cs= script (that's
+  [[two]]), and no live/integration run of the new steps against a real
+  container (not yet re-verified end-to-end, per =AI-DevStatus.org= caveat on
+  =procContainer=).
+** -
+SCHEDULED: <2026-09-02 Wed 15:52>
+We will develope those at /bxRepos/bisos-pip/capability/AI-WorkPlan.org
+----- AI Results: ------
+
+
 ** -
 
 
