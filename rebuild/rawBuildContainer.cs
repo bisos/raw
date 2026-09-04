@@ -222,8 +222,8 @@ class examples(cs.Cmnd):
                 leafPars = od(freshDeb=freshDeb, platformModel=platformModel)
                 cs.examples.menuChapter(f'=Build rawBisos -- deb{freshDeb} {platformModel}=')
                 cmnd('procContainer',
-                     pars=od(**leafPars, steps=['up']),
-                     comment=" # up vnc")
+                     pars=od(**leafPars, steps=['up', 'verifyUp']),
+                     comment=" # up and verify")
                 cmnd('procContainer',
                      pars=od(**leafPars, steps=['up', 'rawBisosBase']),
                      comment=" # build rawBisos (up + install)")
