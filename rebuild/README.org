@@ -113,7 +113,7 @@ and it is worth being explicit about which is which:
 
   #+begin_src sh
   rawBuildContainer.cs -i procContainer --freshDeb="13" --platformModel="sysd-priv" \
-      --steps='["delete", "up", "installRawBisos", "verifyUp"]'
+      --steps='["delete", "up", "rawBisosBase", "down", "up", "rawBisosCBMs"]'
   #+end_src
 
 The =rawBuild*= family deliberately does *not* use the walker. =rawBuildKvm.cs=
@@ -190,12 +190,23 @@ That gives 6 leaves: {deb12, deb13} × {confined, sysd-priv, sysd-podman}.
 leaf --- serially, fail-fast --- then always prints clickable connect lines. Known
 steps:
 
-| Step              | Meaning                                                    | Leaf verb it invokes                     |
-|-------------------+------------------------------------------------------------+------------------------------------------|
-| =delete=          | stop + remove the instance                                 | =containerProc_instanceDelete=           |
-| =up=              | bring the instance up (only if not already running)        | =containerProc_instanceUp=               |
-| =installRawBisos= | run =installRawBisos.sh= inside the container              | =containerProc_exec_installRawBisos=     |
-| =verifyUp=        | verify the running instance (ports, noVNC HTTP, SSH/systemd) | =containerProc_instanceVerify=         |
+| Step           | Meaning                                                        | Leaf verb it invokes                          |
+|----------------+----------------------------------------------------------------+-----------------------------------------------|
+| =delete=       | stop + remove the instance                                     | =containerProc_instanceDelete=                |
+| =up=           | bring the instance up (no-op if already running)               | =containerProc_instanceUp=                    |
+| =down=         | stop the instance (never removes it)                           | =containerProc_instanceDown=                  |
+| =rawBisosBase= | run =~/raw-bisos/installRawBisos.sh= inside the container      | =containerProc_exec_installRawBisos=          |
+| =rawBisosCBMs= | run =~/raw-bisos/sysCbmFullyMaterialize.sh= (=sysCbmManage.cs -i fullyMaterialize=), as bystar | =containerProc_exec_sysCbmFullyMaterialize= |
+| =verifyUp=     | verify the running instance (ports, noVNC HTTP, SSH/systemd)   | =containerProc_instanceVerify=                |
+
+=down= + =up= between =rawBisosBase= and =rawBisosCBMs= makes the groups created
+by =rawBisosBase= take effect. A leaf's instance is identified by its exact
+container name --- sibling leaves (=bisos_deb13-sysd= and =bisos_deb13-sysd-2=)
+share a name prefix and an image, and do not affect each other.
+
+Known issues (2026-11-03): =verifyUp= right after a fresh =up= can fail while
+systemd is still booting (re-run it), and it checks =vncserver@:1.service=
+whereas the sysd leaves now run =vncserver.service=.
 
 The right-hand column is the =bisos.dockerProc= verb each step subprocess-runs
 in the leaf directory. Steps are this repo's contribution --- *sequencing* and
@@ -210,8 +221,8 @@ Common recipes:
 # Bring a VNC container up and verify it (no install)
 rawBuildContainer.cs -i procContainer --freshDeb="13" --platformModel="confined" --steps='["up", "verifyUp"]'
 
-# Full build: recreate, bring up, install Raw-BISOS, verify
-rawBuildContainer.cs -i procContainer --freshDeb="13" --platformModel="sysd-priv" --steps='["delete", "up", "installRawBisos", "verifyUp"]'
+# Full build: recreate, bring up, install Raw-BISOS, restart, materialize CBMs
+rawBuildContainer.cs -i procContainer --freshDeb="13" --platformModel="sysd-priv" --steps='["delete", "up", "rawBisosBase", "down", "up", "rawBisosCBMs"]'
 #+end_src
 
 Run =rawBuildContainer.cs -i examples= for the full per-leaf recipe matrix.
@@ -255,6 +266,22 @@ rawBuildContainer.cs -i buildImage_rawBisos --freshDeb="13" --platformModel="sys
 Note: the =sysd-priv= and =sysd-podman= images are built =FROM= the =confined= base
 for the same Debian release, so if you change base-image inputs, rebuild the
 =confined= leaf first.
+
+*** Rebuild all images of a release
+
+To rebuild every image of a Debian release in dependency order (confined ->
+privileged -> rootless-sysd), walk =bro_dockerfiles= with =fto_prepare= (shown
+first in =buildImageExamples=, and in the main =examples= menu):
+
+#+begin_src sh
+( cd /bisos/git/bxRepos/bxObjects/bro_dockerfiles/debian/13 && ./ftoBranchProc.spcs -i fto_prepare )
+#+end_src
+
+Stand at =debian/13/= (or =debian/12/=), not =debian/=. Rebuilding never stops or
+deletes instances: they keep running on the old, now untagged, image until
+re-created (=delete= + =up=, or the =fto_reMaterialize= walk). This is needed, for
+example, after adding a file to =bro_dockerfiles/common/raw-bisos/=. See
+=bro_dockerfiles/README.org=, "Walking the Tree: Lifecycle Verbs".
 
 ** Parameters
    :PROPERTIES:

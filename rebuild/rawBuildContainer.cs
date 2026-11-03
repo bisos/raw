@@ -214,6 +214,7 @@ class examples(cs.Cmnd):
         # dedicated image-construction menu; image builds are infrequent.
         cs.examples.menuChapter('=Build rawBisos Images=')
         cmnd('buildImageExamples', comment=" # dedicated image-construction examples menu")
+        literal("( cd /bisos/git/bxRepos/bxObjects/bro_dockerfiles/debian/13 && ./ftoBranchProc.spcs -i fto_prepare )  # rebuild ALL deb13 images, in dependency order")
 
         # Instance layer --- one section per leaf: the common procContainer commands
         # inline (up, build), plus a drill-down to the fuller per-leaf example menu.
@@ -293,6 +294,21 @@ class buildImageExamples(cs.Cmnd):
 
         od = collections.OrderedDict
         cmnd = cs.examples.cmndEnter
+        literal = cs.examples.execInsert
+
+        # Rebuild ALL images of a Debian release in one walk. bro_dockerfiles' branch
+        # dispatcher (ftoBranchProc.spcs, bisos.fileObj) runs fto_prepare
+        # (= containerProc_imageBuild) at every leaf below, in dependency order:
+        # confined (the FROM base) -> privileged -> rootless-sysd. Needed e.g. after
+        # changing common/raw-bisos/. Stand at debian/<N>/, not debian/: there the
+        # order is not set (fto_effectiveBranches is empty).
+        # Documented in bro_dockerfiles/README.org "Walking the Tree: Lifecycle Verbs".
+        broDebian = "/bisos/git/bxRepos/bxObjects/bro_dockerfiles/debian"
+        cs.examples.menuChapter('=Rebuild All Images (walk, in dependency order)=')
+        for freshDeb in ('13', '12'):
+            literal(f"( cd {broDebian}/{freshDeb} && ./ftoBranchProc.spcs -i fto_effectiveBranches )  # show walk order")
+            literal(f"( cd {broDebian}/{freshDeb} && ./ftoBranchProc.spcs -i fto_prepare )  # build every deb{freshDeb} image")
+        literal(f"( cd {broDebian}/13 && ./ftoBranchProc.spcs -i fto_forwardToLeaves --cmndName=containerProc_instanceIsStale )  # instances on an old image?")
 
         # Only buildImage_rawBisos entries --- one section per leaf, plain and --noCache.
         for freshDeb in ('12', '13'):
@@ -309,16 +325,24 @@ class buildImageExamples(cs.Cmnd):
         return(cmndOutcome)
 
 
+def rawBuild_isRunning(self, proc, containerName) -> bool:
+    """True if the container named exactly =containerName= is running.
+
+    Uses =<engine> container inspect= (exact name). Do NOT grep =ps= output for
+    the leaf name: it is a substring of sibling leaves (bisos_deb13-sysd vs
+    bisos_deb13-sysd-2) and of the shared image name (bisos_deb13-sysd:latest).
+    """
+    engine = 'podman' if proc.startswith('podman') else 'docker'
+    stateStr = (b.subProc.WOpW(invedBy=self, log=0).bash(
+        f"{engine} container inspect -f '{{{{.State.Status}}}}' {containerName} 2>/dev/null || true"
+    ).stdout or "")
+    return stateStr.strip() == "running"
+
 def _rawBuild_stepUp(self, proc, instancePath, imageName):
-    """Ensure the instance is up --- bring it up only if not already running."""
-    psOutcome = b.subProc.WOpW(invedBy=self, log=1).bash(
-        f"cd {instancePath} && ./{proc} -i containerProc_instancePs")
-    if psOutcome.isProblematic():
-        return psOutcome
-    isUp = any(imageName in line and "Up" in line
-               for line in (psOutcome.stdout or "").splitlines())
-    if isUp:
-        return psOutcome
+    """Ensure the instance is up. containerProc_instanceUp is itself idempotent
+    (it checks the exact container state and does nothing if already running),
+    so no pre-check here.
+    """
     return b.subProc.WOpW(invedBy=self, log=1).bash(
         f"cd {instancePath} && ./{proc} -i containerProc_instanceUp")
 
@@ -348,23 +372,22 @@ def _rawBuild_stepRawBisosBase(self, proc, instancePath, imageName):
         f"cd {instancePath} && ./{proc} -i containerProc_exec_installRawBisos")
 
 def _rawBuild_stepRawBisosCBMs(self, proc, instancePath, imageName):
-    """Run sysCbmManage.cs -i fullyMaterialize inside the running container, as
-    the bystar user.
+    """Run ~/raw-bisos/sysCbmFullyMaterialize.sh (sysCbmManage.cs -i
+    fullyMaterialize) inside the running container, as the bystar user.
 
-    PATH gotcha: bystar's ~/.bashrc has the standard Debian guard
-    ('case $- in *i*) ;; *) return;; esac') that skips the rest of .bashrc
-    (where PIPX_BIN_DIR/other PATH exports live, incl. nvm) for
-    NON-interactive shells. 'bash -l -c ...' (login, non-interactive) sources
-    ~/.profile -> ~/.bashrc, but the guard fires immediately, so PATH ends up
-    minimal and 'sysCbmManage.cs' is not found. Forcing an interactive shell
-    with 'bash -i -c ...' makes the guard pass and PATH gets populated (verified
-    live: resolves to /bisos/venv/py3/bisos3/bin/sysCbmManage.cs). '-i' without
-    a tty prints harmless "cannot set terminal process group" / "no job
-    control" warnings to stderr; exit status is unaffected.
+    Goes through the spcs verb =containerProc_exec_sysCbmFullyMaterialize=
+    (bisos.dockerProc), mirroring rawBisosBase's containerProc_exec_installRawBisos.
+    The script is baked into the image from bro_dockerfiles/common/raw-bisos/,
+    so images built before it was added lack it: rebuild the image and recreate
+    the instance ('delete' step).
+
+    PATH gotcha (handled inside the script): bystar's ~/.bashrc has the standard
+    Debian guard ('case $- in *i*) ;; *) return;; esac') that skips the PATH and
+    nvm setup for NON-interactive shells, so 'sysCbmManage.cs' is not found from
+    'bash -l -c'. The script runs it via 'bash -ic' (forced interactive).
     """
-    engine = 'podman' if 'podmanProc' in proc else 'docker'
     return b.subProc.WOpW(invedBy=self, log=1).bash(
-        f"{engine} exec -u bystar {imageName} bash -ic 'sysCbmManage.cs -i fullyMaterialize'")
+        f"cd {instancePath} && ./{proc} -i containerProc_exec_sysCbmFullyMaterialize")
 
 def _rawBuild_stepVerifyUp(self, proc, instancePath, imageName):
     """Verify the running instance (ports, noVNC HTTP, SSH/systemd)."""
@@ -586,12 +609,8 @@ class containerPs(cs.Cmnd):
         psOutcome = b.subProc.WOpW(invedBy=self, log=1).bash(
             f"cd {instancePath} && ./{proc} -i containerProc_instancePs")
         if psOutcome.isProblematic(): return failed(cmndOutcome)
-        isUp = any(
-            imageName in line and "Up" in line
-            for line in (psOutcome.stdout or "").splitlines()
-        )
 
-        if isUp:
+        if rawBuild_isRunning(self, proc, imageName):
             print(f"# {imageName} is UP")
             rawBuild_connectInfoShow(self, platformModel, instancePath)
         else:
