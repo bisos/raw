@@ -93,17 +93,17 @@ platforms live here:
   - =containerProc_instancePs= filter anchored =name=^<container>$= (2026-11-03).
   - NEW =containerProc_exec_sysCbmFullyMaterialize= (2026-11-03).
   Committed 5ddbc28 (2026-11-03). dockerProc is its own AI-Activity root (git-tracked).
-  - =fto_prepare= honours =--noCache= (2026-11-23, uncommitted).
+  - =fto_prepare= honours =--noCache= (2026-11-23, 813b6d3).
 - =bxObjects/bro_dockerfiles=:
   - =dev-shm-resize.service= in the privileged leaves (recorded in the docker Blee panel).
   - NEW =common/raw-bisos/sysCbmFullyMaterialize.sh= (2026-11-03) --- baked into
     images at =~/raw-bisos/=; containers get it only after an image rebuild +
     instance re-create. Committed 7193411 (2026-11-03); own AI-Activity root (git-tracked).
   - VNC password moved to the leaf directory (=<leaf>/bisosVncPasswd=, 2026-11-23,
-    uncommitted): its AI-DevStatus and AI-WorkPlan TODO 6.3. Affects every container
+    f9a8c11): its AI-DevStatus and AI-WorkPlan TODO 6.3. Affects every container
     this repo builds (images must be rebuilt).
   - Image rebuild walk documented in its =README.org= "Walking the Tree: Lifecycle Verbs".
-- =bisos-pip/fileObj= (=fto_csu.py=, 2026-11-23, uncommitted): branch walks pass options
+- =bisos-pip/fileObj= (=fto_csu.py=, 2026-11-23, 2eb592f): branch walks pass options
   they do not declare (=--noCache=true=) on to every leaf --- its AI-WorkPlan 4.8. Own
   AI-Activity root (git-tracked).
 
