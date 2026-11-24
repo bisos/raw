@@ -198,6 +198,18 @@ Found 2026-11-03 under [[containerIdentity]]:
 - Then: rebuild deb13 images (=fto_prepare=), =delete=+=up=, run the full pipeline.
 ----- AI Results: ------
 
+** DONE [#B] <<rebuildNoCache>> Show the no-cache rebuild walk in the menus :aiAndMe:
+CLOSED: [2026-11-23 Mon]
+A walked =--noCache=true= used to be dropped (bro_dockerfiles AI-WorkPlan 6.1); fixed in
+=bisos.fileObj= (its AI-WorkPlan 4.8) and =bisos.dockerProc= on 2026-11-23.
+----- AI Results: ------
+- =rawBuildContainer.cs=: the main =examples= menu and =buildImageExamples= now also show
+  =( cd .../debian/<N> && ./ftoBranchProc.spcs -i fto_prepare --noCache=true )=; comment updated.
+  Compiles; both menus render.
+- README.org "Rebuild all images of a release" and AI-DevStatus (Image layer, Cross-Repo Changes)
+  updated.
+- Not run as a real no-cache build here (bro_dockerfiles 6.3, step 0, does it).
+
 ** -
 
 

@@ -73,7 +73,10 @@ platforms live here:
     starts with the *rebuild-all walk*:
     =( cd bro_dockerfiles/debian/13 && ./ftoBranchProc.spcs -i fto_prepare )= ---
     builds every deb13 image in dependency order (confined -> privileged ->
-    rootless-sysd). Also shown in the main =examples= menu.
+    rootless-sysd). Also shown in the main =examples= menu, each with a
+    =--noCache=true= variant (2026-11-23): the walk now passes it on to every leaf
+    (=bisos.fileObj= AI-WorkPlan 4.8; before, it was silently dropped and a cached
+    build could fail on stale apt lists --- bro_dockerfiles AI-WorkPlan 6.1).
   - =containerPathObtain= :: (freshDeb, platformModel) -> leaf path (+ exists guard).
   - =rawBuild_connectInfoShow= :: runnable connect lines (vncviewer / ssh /
     visitUrl), ports read live from =<engine> port <name>=.
@@ -89,13 +92,20 @@ platforms live here:
   - =containerProc_instanceDown= on docker = =compose stop= (was =down=, which removed).
   - =containerProc_instancePs= filter anchored =name=^<container>$= (2026-11-03).
   - NEW =containerProc_exec_sysCbmFullyMaterialize= (2026-11-03).
-  Uncommitted as of 2026-11-03; dockerProc is its own AI-Activity root (git-tracked).
+  Committed 5ddbc28 (2026-11-03). dockerProc is its own AI-Activity root (git-tracked).
+  - =fto_prepare= honours =--noCache= (2026-11-23, uncommitted).
 - =bxObjects/bro_dockerfiles=:
   - =dev-shm-resize.service= in the privileged leaves (recorded in the docker Blee panel).
   - NEW =common/raw-bisos/sysCbmFullyMaterialize.sh= (2026-11-03) --- baked into
     images at =~/raw-bisos/=; containers get it only after an image rebuild +
-    instance re-create. Uncommitted as of 2026-11-03; own AI-Activity root (git-tracked).
+    instance re-create. Committed 7193411 (2026-11-03); own AI-Activity root (git-tracked).
+  - VNC password moved to the leaf directory (=<leaf>/bisosVncPasswd=, 2026-11-23,
+    uncommitted): its AI-DevStatus and AI-WorkPlan TODO 6.3. Affects every container
+    this repo builds (images must be rebuilt).
   - Image rebuild walk documented in its =README.org= "Walking the Tree: Lifecycle Verbs".
+- =bisos-pip/fileObj= (=fto_csu.py=, 2026-11-23, uncommitted): branch walks pass options
+  they do not declare (=--noCache=true=) on to every leaf --- its AI-WorkPlan 4.8. Own
+  AI-Activity root (git-tracked).
 
 * What Works (verified live, 2026-11-03, deb13 sysd-priv)
 

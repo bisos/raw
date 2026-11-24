@@ -215,6 +215,7 @@ class examples(cs.Cmnd):
         cs.examples.menuChapter('=Build rawBisos Images=')
         cmnd('buildImageExamples', comment=" # dedicated image-construction examples menu")
         literal("( cd /bisos/git/bxRepos/bxObjects/bro_dockerfiles/debian/13 && ./ftoBranchProc.spcs -i fto_prepare )  # rebuild ALL deb13 images, in dependency order")
+        literal("( cd /bisos/git/bxRepos/bxObjects/bro_dockerfiles/debian/13 && ./ftoBranchProc.spcs -i fto_prepare --noCache=true )  # ... without the layer cache")
 
         # Instance layer --- one section per leaf: the common procContainer commands
         # inline (up, build), plus a drill-down to the fuller per-leaf example menu.
@@ -302,12 +303,15 @@ class buildImageExamples(cs.Cmnd):
         # confined (the FROM base) -> privileged -> rootless-sysd. Needed e.g. after
         # changing common/raw-bisos/. Stand at debian/<N>/, not debian/: there the
         # order is not set (fto_effectiveBranches is empty).
+        # --noCache=true is passed on to every leaf (bisos.fileObj, 2026-11-23): it
+        # rebuilds without the layer cache, which also avoids stale apt package lists.
         # Documented in bro_dockerfiles/README.org "Walking the Tree: Lifecycle Verbs".
         broDebian = "/bisos/git/bxRepos/bxObjects/bro_dockerfiles/debian"
         cs.examples.menuChapter('=Rebuild All Images (walk, in dependency order)=')
         for freshDeb in ('13', '12'):
             literal(f"( cd {broDebian}/{freshDeb} && ./ftoBranchProc.spcs -i fto_effectiveBranches )  # show walk order")
             literal(f"( cd {broDebian}/{freshDeb} && ./ftoBranchProc.spcs -i fto_prepare )  # build every deb{freshDeb} image")
+            literal(f"( cd {broDebian}/{freshDeb} && ./ftoBranchProc.spcs -i fto_prepare --noCache=true )  # ... without the layer cache")
         literal(f"( cd {broDebian}/13 && ./ftoBranchProc.spcs -i fto_forwardToLeaves --cmndName=containerProc_instanceIsStale )  # instances on an old image?")
 
         # Only buildImage_rawBisos entries --- one section per leaf, plain and --noCache.

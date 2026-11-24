@@ -275,7 +275,12 @@ first in =buildImageExamples=, and in the main =examples= menu):
 
 #+begin_src sh
 ( cd /bisos/git/bxRepos/bxObjects/bro_dockerfiles/debian/13 && ./ftoBranchProc.spcs -i fto_prepare )
+( cd /bisos/git/bxRepos/bxObjects/bro_dockerfiles/debian/13 && ./ftoBranchProc.spcs -i fto_prepare --noCache=true )
 #+end_src
+
+=--noCache=true= rebuilds without the layer cache; the walk passes it on to every leaf
+(=bisos.fileObj=, 2026-11-23 --- before that it was silently dropped). Use it when a cached
+build fails on stale package lists ("404 Not Found" from =apt=).
 
 Stand at =debian/13/= (or =debian/12/=), not =debian/=. Rebuilding never stops or
 deletes instances: they keep running on the old, now untagged, image until
