@@ -28,8 +28,9 @@
 
 ####+BEGIN: b:prog:file/particulars :authors ("./inserts/authors-mb.org")
 """ #+begin_org
-* *[[elisp:(org-cycle)][| Particulars |]]* :: Authors, version
-** This File: /l/pip/siteRegistrars/py3/bin/siteRegistrars-assemble.cs
+* *[[elisp:(org-cycle)][| Particulars |]]* :: This File, Authors, version
+** This File: /bisos/core/raw/rebuild/rawBuildContainer.cs
+** File True Name: /bisos/git/auth/bxRepos/bisos/raw/rebuild/rawBuildContainer.cs
 ** Authors: Mohsen BANAN, http://mohsen.banan.1.byname.net/contact
 #+end_org """
 ####+END:
@@ -233,7 +234,7 @@ class examples(cs.Cmnd):
                      pars=od(**leafPars, steps=['delete', 'up']),
                      comment=" # recreate: delete + up")
                 cmnd('procContainer',
-                     pars=od(**leafPars, steps=['delete', 'up', 'rawBisosBase']),
+                     pars=od(**leafPars, steps=['delete', 'up', 'rawBisosBase', 'down', 'up']),
                      comment=" # recreate + build: delete + up + install")
                 cmnd('procContainer',
                      pars=od(**leafPars, steps=['delete', 'up', 'rawBisosBase', 'down', 'up', 'rawBisosCBMs']),
