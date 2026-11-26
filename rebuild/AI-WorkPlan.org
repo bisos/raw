@@ -12,16 +12,19 @@
 
 ####+BEGIN: b:ai:workflow/driver
 *  [[elisp:(revert-buffer)][revert-buffer]] | [[elisp:(toggle-read-only)][read/wr]] | [[elisp:(show-all)][Show-All]]  [[elisp:(org-shifttab)][Overview]]  [[elisp:(progn (org-shifttab) (org-content))][Content]] | [[elisp:(delete-other-windows)][(1)]] | [[elisp:(progn (save-buffer) (kill-buffer))][S&Q]] [[elisp:(save-buffer)][Save]] [[elisp:(kill-buffer)][Quit]] [[elisp:(bury-buffer)][Bury]] [[elisp:(magit)][Magit]]
-*  [[elisp:(org-cycle)][AI Workflow Driver :: /bx- commands]]    *After |S|: submitted*
-  newStart :: [[elisp:(blee:bnsm:panel-goto "/bisos/panels/bisos-core/bisos-pip/bisos.aiActivity/newStart/_nodeBase_")][Panel]] | [[bashRun:vscodeClaude-assemble.cs -i fullCheck][setup-check]] | [[bashRun:vscodeClaude-assemble.cs -i fullUpdate][setup]] | [[elisp:(b:vscode/init)][partner-init]] | [[elisp:(b:vscode/partnerShow)][partner-show]] | [[aiActivity:session-start][session-start]]
-  VS Code  :: [[elisp:(b:vscode/fileOpen)][Visit]] | [[elisp:(b:vscode/rootOpen)][root-window]] | [[elisp:(b:vscode:claude/dispatch)][Transient]]
-  Session  :: [[elisp:(b:vscode:claude/sessionSelect)][select-session]] | [[aiActivity:session-start][session-start]] | [[aiActivity:session-report][session-report]]  *|S|*  [[aiActivity:S=session-start][session-start]]
-  Activity :: [[aiActivity:activity-reach][activity-reach]] | [[aiActivity:activity-report][activity-report]]  *|S|*  [[aiActivity:S=activity-reach][activity-reach]]
-  Read     :: [[aiActivity:status-read][status-read]] | [[aiActivity:archive-read][archive-read]] | [[aiActivity:ai-outputs][ai-outputs]]  *|S|*  [[aiActivity:S=status-read][status-read]] | [[aiActivity:S=archive-read][archive-read]] | [[aiActivity:S=ai-outputs][ai-outputs]]
-  Work     :: [[aiActivity:todo-do][todo-do]] | [[aiActivity:todo-done][todo-done]]  *|S|*  [[aiActivity:S=todo-do][todo-do]] | [[aiActivity:S=todo-done][todo-done]]
-  Record   :: [[aiActivity:status-update][status-update]] | [[aiActivity:archive-update][archive-update]]  *|S|*  [[aiActivity:S=status-update][status-update]] | [[aiActivity:S=archive-update][archive-update]]
-  Git      :: [[aiActivity:git-commit-msg][git-commit-msg]] | [[aiActivity:git-commit-walk][git-commit-walk]]  *|S|*  [[aiActivity:S=git-commit-msg][git-commit-msg]]
-  Close    :: [[aiActivity:git-uncommitted-list][git-uncommitted-list]] | [[aiActivity:session-verify][session-verify]]  *|S|*  [[aiActivity:S=git-uncommitted-list][git-uncommitted-list]] | [[aiActivity:S=session-verify][session-verify]]
+*  [[elisp:(org-cycle)][AI Workflow Driver]]  --  *$Emacs*  *^Bash*  /@VS Code/  #prompt-claude  _!submit-claude_
+  State     :: (Refresh, on the Info line, shows the session)
+  Info      :: *[[elisp:(b:ai:workflow/driver/refresh)][$Refresh]]* | *[[elisp:(blee:bnsm:panel-goto "/bisos/panels/bisos-core/bisos-pip/bisos.aiActivity/newStart/_nodeBase_")][$Panel]]* | *[[elisp:(b:vscode:claude/dispatch)][$Transient]]* | *[[elisp:(b:vscode/partnerShow)][$partner]]* | *[[file:/bisos/git/bxRepos/blee/vscode-claude/README.org][$vscode-claude-README]]* | *[[file:/bisos/git/bxRepos/bisos-pip/aiActivity/README.org][$aiActivity-README]]*
+  newStart  :: *[[bashRun:vscodeClaude-assemble.cs -i fullCheck][$setup-check]]* | *[[bashRun:vscodeClaude-assemble.cs -i fullUpdate][$setup]]* | *[[elisp:(b:vscode/init)][$partner-init]]* | [[aiActivity:session-start][#session-start]] | _[[aiActivity:S=session-start][!session-start]]_
+  VS Code   :: *[[bashRunHere:vscode.cs][^vscode.cs]]* | *[[bashRunHere:vscodeClaude.cs][^vscodeClaude.cs]]* | /[[elisp:(b:vscode/fileOpen)][@Visit]]/ | /[[elisp:(b:vscode/rootOpen)][@root-window]]/   <- Ctrl+K Ctrl+E
+  Session   :: *[[elisp:(b:vscode:claude/sessionSelect)][$select-session]]* | [[aiActivity:session-start][#session-start]] | [[aiActivity:session-report][#session-report]] | [[aiActivity:session-summary][#session-summary]] | _[[aiActivity:S=session-start][!session-start]]_
+  Activity  :: *[[bashRunHere:aiActivity.cs][^aiActivity.cs]]* | [[aiActivity:activity-reach][#activity-reach]] | [[aiActivity:activity-report][#activity-report]] | _[[aiActivity:S=activity-reach][!activity-reach]]_
+  Read      :: [[aiActivity:status-read][#status-read]] | [[aiActivity:archive-read][#archive-read]] | [[aiActivity:ai-outputs][#ai-outputs]] | _[[aiActivity:S=status-read][!status-read]]_ | _[[aiActivity:S=archive-read][!archive-read]]_ | _[[aiActivity:S=ai-outputs][!ai-outputs]]_
+  Work      :: [[aiActivity:todo-do][#todo-do]] | [[aiActivity:todo-done][#todo-done]] | _[[aiActivity:S=todo-do][!todo-do]]_ | _[[aiActivity:S=todo-done][!todo-done]]_ | *[[elisp:(b:ai:workflow/driver/aiOutputsVisit)][$Visit-AiOutputs]]*
+  Record    :: [[aiActivity:status-update][#status-update]] | [[aiActivity:archive-update][#archive-update]] | [[aiActivity:context-trim][#context-trim]] | _[[aiActivity:S=status-update][!status-update]]_ | _[[aiActivity:S=archive-update][!archive-update]]_
+  Git       :: [[aiActivity:git-uncommitted-list][#git-uncommitted-list]] | [[aiActivity:git-commit-msg][#git-commit-msg]] | _[[aiActivity:S=git-uncommitted-list][!git-uncommitted-list]]_ | _[[aiActivity:S=git-commit-msg][!git-commit-msg]]_
+  Close     :: [[aiActivity:session-verify][#session-verify]] | [[aiActivity:skills-improve][#skills-improve]] | _[[aiActivity:S=git-commit-walk][!git-commit-walk]]_ | _[[aiActivity:S=git-pull-list-add][!git-pull-list-add]]_
+  newResume :: *[[bashRun:git -C /bxRepos/blee-binders/evolution pull --rebase][$outputs-pull]]* | *[[elisp:(b:ai:workflow/driver/pullListVisit)][$pull-list]]* | *[[bashRun:pipPkgsStatus.cs -i pkgsStatus][$pipPkgsStatus]]* | [[aiActivity:newResume-confirm][#newResume-confirm]] | _[[aiActivity:S=newResume-confirm][!newResume-confirm]]_
 
 ####+END:
 

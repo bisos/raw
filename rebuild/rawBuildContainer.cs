@@ -84,7 +84,10 @@ from bisos.b import b_io
 from bisos.common import csParam
 
 import collections
+import datetime
+import json
 import pathlib
+import subprocess
 ####+END:
 
 """ #+begin_org
@@ -239,6 +242,9 @@ class examples(cs.Cmnd):
                 cmnd('procContainer',
                      pars=od(**leafPars, steps=['delete', 'up', 'rawBisosBase', 'down', 'up', 'rawBisosCBMs']),
                      comment=" # full: recreate + install + reconnect (groups) + CBMs")
+                cmnd('procContainer',
+                     pars=od(**leafPars, steps=['delete', 'up', 'rawBisosBase', 'down', 'up', 'rawBisosCBMs', 'verify']),
+                     comment=" # CI: full + verify (report and logs to /bisos/var/rawBuild/, compared)")
                 cmnd('procContainerExamples',
                      pars=leafPars,
                      comment=" # more examples (verify, recreate, delete, status)")
@@ -399,6 +405,81 @@ def _rawBuild_stepVerifyUp(self, proc, instancePath, imageName):
     return b.subProc.WOpW(invedBy=self, log=1).bash(
         f"cd {instancePath} && ./{proc} -i containerProc_instanceVerify")
 
+# Where the verify step keeps each run's results on the host:
+#   <rawBuild_resultsBase>/<containerName>/<yymmddHHMMSS>/{verify/report.json,report.org, *-log.org, compare.txt}
+rawBuild_resultsBase = pathlib.Path("/bisos/var/rawBuild")
+
+def _rawBuild_inContainer(engine, containerName, script):
+    """Run a bash script in the container as bystar, in a forced-interactive shell (bystar's ~/.bashrc
+    sets PATH only for interactive shells; see _rawBuild_stepRawBisosCBMs). Returns CompletedProcess."""
+    return subprocess.run([engine, 'exec', '-u', 'bystar', containerName, 'bash', '-ic', script],
+                          capture_output=True, text=True, check=False)
+
+def _rawBuild_stepVerify(self, proc, instancePath, imageName):
+    """Is the built platform healthy? bisos.capability AI-WorkPlan.org 5.5.
+
+    1. Runs =sysCbmManage.cs -i fullyVerify= inside the container (read-only; it also scans this run's
+       ~/raw-bisos-*-log.org and ~/sysCbmFullyMaterialize-*-log.org).
+    2. Copies its report and those two logs to the host, under
+       /bisos/var/rawBuild/<containerName>/<yymmddHHMMSS>/.
+    3. Compares the report with the previous run's there (bisos.capability cbmVerify.compare): new
+       failures, fixed, exit codes changed --- the measurement of bisos-pip/b Stage 4 (5.6).
+    4. endNotify: prints the summary (no channel yet).
+
+    The step fails only when no report could be collected. A report whose verdict is fail is a
+    result, printed, not a failed step: the verdicts come from evidence, not exit codes.
+    """
+    engine = 'podman' if proc.startswith('podman') else 'docker'
+    containerName = imageName
+    outcome = b.op.Outcome()
+
+    run = subprocess.run([engine, 'exec', '-u', 'bystar', containerName, 'bash', '-ic',
+                          'sysCbmManage.cs -i fullyVerify'], check=False)
+    print(f"verify: fullyVerify in {containerName} exited {run.returncode} (not trusted: the report decides)")
+
+    reportDir = _rawBuild_inContainer(engine, containerName,
+                                      'readlink -f /bisos/var/cbm/verify/latest').stdout.strip().splitlines()
+    reportDir = reportDir[-1] if reportDir else ""
+    if not reportDir.startswith('/bisos/var/cbm/verify/'):
+        b_io.eh.problem_usageError(f"verify: no report in {containerName} (/bisos/var/cbm/verify/latest)")
+        return b_io.eh.badOutcome(outcome)
+
+    tag = datetime.datetime.now().strftime("%y%m%d%H%M%S")
+    hostBase = rawBuild_resultsBase / containerName
+    runDir = hostBase / tag
+    runDir.mkdir(parents=True, exist_ok=True)
+    if subprocess.run([engine, 'cp', f"{containerName}:{reportDir}", str(runDir / 'verify')],
+                      check=False).returncode != 0 or not (runDir / 'verify' / 'report.json').is_file():
+        b_io.eh.problem_usageError(f"verify: could not copy {reportDir} out of {containerName}")
+        return b_io.eh.badOutcome(outcome)
+
+    logs = _rawBuild_inContainer(engine, containerName,
+        'for p in raw-bisos sysCbmFullyMaterialize; do ls -1t ~/$p-*-log.org 2>/dev/null | head -1; done').stdout
+    for log in [line.strip() for line in logs.splitlines() if line.strip().endswith('-log.org')]:
+        subprocess.run([engine, 'cp', f"{containerName}:{log}", str(runDir)], check=False)
+
+    report = json.loads((runDir / 'verify' / 'report.json').read_text())
+    counts = ", ".join(f"{k} {v}" for k, v in sorted(report['counts'].items()))
+    masked = report.get('maskedFailures') or []
+
+    previous = sorted(d for d in hostBase.iterdir()
+                      if d.is_dir() and d.name < tag and (d / 'verify' / 'report.json').is_file())
+    if previous:
+        from bisos.capability import cbmVerify
+        old = json.loads((previous[-1] / 'verify' / 'report.json').read_text())
+        compareStr = cbmVerify.compareText(old, report, cbmVerify.compare(old, report))
+        (runDir / 'compare.txt').write_text(compareStr + "\n")
+        print(compareStr)
+    else:
+        print(f"verify: first run under {hostBase}: nothing to compare with")
+
+    # endNotify: no channel is defined yet; the summary is printed.
+    print(f"verify: {containerName}: {report['verdict']} --- leaves {counts}; platform problems "
+          f"{report['platformProblems']}; log hits {len(report.get('logHits', []))}"
+          + (f"; masked: {', '.join(masked)}" if masked else ""))
+    print(f"verify: results in {runDir}")
+    return outcome.set(opError=b.op.OpError.Success, opResults=str(runDir))
+
 # Ordered registry of known steps; anything else is a hard error. Add cap*/verify*
 # handlers here as they are implemented.
 rawBuild_stepTable = {
@@ -408,6 +489,7 @@ rawBuild_stepTable = {
     'rawBisosBase': _rawBuild_stepRawBisosBase,
     'rawBisosCBMs': _rawBuild_stepRawBisosCBMs,
     'verifyUp':     _rawBuild_stepVerifyUp,
+    'verify':       _rawBuild_stepVerify,
 }
 
 ####+BEGIN: b:py3:cs:cmnd/classHead :cmndName "procContainer" :comment "" :extent "verify" :ro "cli" :parsMand "" :parsOpt "freshDeb platformModel instance steps" :argsMin 0 :argsMax 0 :pyInv ""
@@ -446,10 +528,13 @@ class procContainer(cs.Cmnd):
         removing --- so groups created by =rawBisosBase= take effect on the next
         =up=), =rawBisosBase= (run installRawBisos.sh inside), =rawBisosCBMs=
         (run sysCbmManage.cs -i fullyMaterialize as bystar), =verifyUp=
-        (containerProc_instanceVerify).
+        (containerProc_instanceVerify), =verify= (sysCbmManage.cs -i fullyVerify inside; its
+        report and the logs copied to /bisos/var/rawBuild/<container>/<date>/ and compared with
+        the previous run there).
         Connect URLs are always shown at the end. Examples:
           -i procContainer --steps='["up", "verifyUp"]'
           -i procContainer --steps='["delete", "up", "rawBisosBase", "down", "up", "rawBisosCBMs"]'
+          -i procContainer --steps='["delete", "up", "rawBisosBase", "down", "up", "rawBisosCBMs", "verify"]'
         #+end_org """): return(cmndOutcome)
 
         self.captureRunStr(""" #+begin_org
@@ -555,6 +640,12 @@ class procContainerExamples(cs.Cmnd):
         cmnd('procContainer',
              pars=od(**leafPars, steps=['delete', 'up', 'rawBisosBase', 'down', 'up', 'rawBisosCBMs']),
              comment=" # full: recreate + install + reconnect (groups) + CBMs")
+        cmnd('procContainer',
+             pars=od(**leafPars, steps=['delete', 'up', 'rawBisosBase', 'down', 'up', 'rawBisosCBMs', 'verify']),
+             comment=" # CI: full + verify (report and logs to /bisos/var/rawBuild/, compared)")
+        cmnd('procContainer',
+             pars=od(**leafPars, steps=['verify']),
+             comment=" # verify only: fullyVerify inside, collect, compare with the previous run")
         cmnd('procContainer',
              pars=od(**leafPars, steps=['delete']),
              comment=" # delete instance")

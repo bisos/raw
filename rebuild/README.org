@@ -198,6 +198,11 @@ steps:
 | =rawBisosBase= | run =~/raw-bisos/installRawBisos.sh= inside the container      | =containerProc_exec_installRawBisos=          |
 | =rawBisosCBMs= | run =~/raw-bisos/sysCbmFullyMaterialize.sh= (=sysCbmManage.cs -i fullyMaterialize=), as bystar | =containerProc_exec_sysCbmFullyMaterialize= |
 | =verifyUp=     | verify the running instance (ports, noVNC HTTP, SSH/systemd)   | =containerProc_instanceVerify=                |
+| =verify=       | is the built platform healthy? =sysCbmManage.cs -i fullyVerify= inside; report and logs to =/bisos/var/rawBuild/<container>/<date>/=, compared with the previous run | (docker exec / docker cp; bisos.capability) |
+
+=verify= decides from the report's evidence, not from exit codes: the step fails only when no report
+could be collected, and a fail verdict is printed as a result. Each run keeps =verify/report.json=,
+=verify/report.org=, the container's =raw-bisos= and =sysCbmFullyMaterialize= logs and =compare.txt=.
 
 =down= + =up= between =rawBisosBase= and =rawBisosCBMs= makes the groups created
 by =rawBisosBase= take effect. A leaf's instance is identified by its exact
@@ -223,6 +228,9 @@ rawBuildContainer.cs -i procContainer --freshDeb="13" --platformModel="confined"
 
 # Full build: recreate, bring up, install Raw-BISOS, restart, materialize CBMs
 rawBuildContainer.cs -i procContainer --freshDeb="13" --platformModel="sysd-priv" --steps='["delete", "up", "rawBisosBase", "down", "up", "rawBisosCBMs"]'
+
+# CI: the full build, then verify (bisos.capability AI-WorkPlan.org Stage 5)
+rawBuildContainer.cs -i procContainer --freshDeb="13" --platformModel="sysd-priv" --steps='["delete", "up", "rawBisosBase", "down", "up", "rawBisosCBMs", "verify"]'
 #+end_src
 
 Run =rawBuildContainer.cs -i examples= for the full per-leaf recipe matrix.

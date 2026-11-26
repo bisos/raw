@@ -32,6 +32,9 @@ platforms live here:
 - =rawBuildContainer.cs= --- Docker/Podman containers. Main command =procContainer=,
   driven by a =steps= pipeline. Verified live on the deb13 sysd-priv leaf for
   =up=, =down=, =verifyUp=, =rawBisosCBMs= (other 5 leaves still unrun).
+  2026-11-26: a =verify= step (bisos.capability AI-WorkPlan.org 5.5): =fullyVerify= inside, the report
+  and logs to =/bisos/var/rawBuild/<container>/<date>/=, compared with the previous run. *Not yet run*
+  (written on a host without docker); needs the bisos.capability release (phase B).
 - =rawBuildKvm.cs= --- KVM guests (VAG). Starting point; *not yet tested* ---
   build body is a placeholder.
 - =rawBuildBox.cs= --- boxes (raw metal). Starting point; *not yet tested* ---
@@ -61,7 +64,8 @@ platforms live here:
     | =rawBisosBase= | =containerProc_exec_installRawBisos=                  |
     | =rawBisosCBMs= | =containerProc_exec_sysCbmFullyMaterialize=           |
     | =verifyUp=     | =containerProc_instanceVerify=                        |
-    Full pipeline: =['delete','up','rawBisosBase','down','up','rawBisosCBMs']=
+    | =verify=       | =_rawBuild_stepVerify= (docker exec / cp; bisos.capability cbmVerify) |
+    Full pipeline: =['delete','up','rawBisosBase','down','up','rawBisosCBMs']=, + ='verify'= for CI
     (the down+up makes groups created by rawBisosBase effective).
   - =rawBuild_isRunning(self, proc, containerName)= :: exact-name running check
     via =<engine> container inspect=. Used by =containerPs=.
