@@ -437,12 +437,16 @@ def _rawBuild_stepVerify(self, proc, instancePath, imageName):
                           'sysCbmManage.cs -i fullyVerify'], check=False)
     print(f"verify: fullyVerify in {containerName} exited {run.returncode} (not trusted: the report decides)")
 
-    reportDir = _rawBuild_inContainer(engine, containerName,
-                                      'readlink -f /bisos/var/cbm/verify/latest').stdout.strip().splitlines()
-    reportDir = reportDir[-1] if reportDir else ""
-    if not reportDir.startswith('/bisos/var/cbm/verify/'):
+    import re
+    # latest points at the bare run tag. Not readlink -f: /bisos/var is a symlink to /var/bisos, so the
+    # resolved path would not start with /bisos/var (found on the first container run, 2026-11-26).
+    runTag = _rawBuild_inContainer(engine, containerName,
+                                   'readlink /bisos/var/cbm/verify/latest').stdout.strip().splitlines()
+    runTag = runTag[-1] if runTag else ""
+    if not re.fullmatch(r"\d{12}", runTag):
         b_io.eh.problem_usageError(f"verify: no report in {containerName} (/bisos/var/cbm/verify/latest)")
         return b_io.eh.badOutcome(outcome)
+    reportDir = f"/bisos/var/cbm/verify/{runTag}"
 
     tag = datetime.datetime.now().strftime("%y%m%d%H%M%S")
     hostBase = rawBuild_resultsBase / containerName

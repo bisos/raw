@@ -33,8 +33,11 @@ platforms live here:
   driven by a =steps= pipeline. Verified live on the deb13 sysd-priv leaf for
   =up=, =down=, =verifyUp=, =rawBisosCBMs= (other 5 leaves still unrun).
   2026-11-26: a =verify= step (bisos.capability AI-WorkPlan.org 5.5): =fullyVerify= inside, the report
-  and logs to =/bisos/var/rawBuild/<container>/<date>/=, compared with the previous run. *Not yet run*
-  (written on a host without docker); needs the bisos.capability release (phase B).
+  and logs to =/bisos/var/rawBuild/<container>/<date>/=, compared with the previous run.
+  First run 2026-11-26 (VM, deb13 sysd): =fullyVerify= wrote its report in the container, then the step
+  failed with "no report": =readlink -f= of =verify/latest= resolved through the =/bisos/var= ->
+  =/var/bisos= link, so the =/bisos/var/cbm/verify/= prefix check failed. Fixed 2026-11-27: the step
+  reads the link's bare run tag (=readlink=, no =-f=). *The fix is not yet run* on the VM.
 - =rawBuildKvm.cs= --- KVM guests (VAG). Starting point; *not yet tested* ---
   build body is a placeholder.
 - =rawBuildBox.cs= --- boxes (raw metal). Starting point; *not yet tested* ---
