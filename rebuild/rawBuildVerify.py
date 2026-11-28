@@ -95,7 +95,7 @@ def collect(
     runTag = lines[-1].strip() if lines else ""
     if not re.fullmatch(r"\d{12}", runTag):
         b_io.eh.problem_usageError(f"verify: no report on {target} (/bisos/var/cbm/verify/latest)")
-        return b_io.eh.badOutcome(outcome)
+        return b_io.eh.badOutcome(outcome.set(opError=b.op.OpError.Failure, opErrInfo="verify: no report"))
     reportDir = f"/bisos/var/cbm/verify/{runTag}"
 
     tag = datetime.datetime.now().strftime("%y%m%d%H%M%S")
@@ -104,7 +104,7 @@ def collect(
     runDir.mkdir(parents=True, exist_ok=True)
     if not fetch(reportDir, runDir / 'verify') or not (runDir / 'verify' / 'report.json').is_file():
         b_io.eh.problem_usageError(f"verify: could not copy {reportDir} from {target}")
-        return b_io.eh.badOutcome(outcome)
+        return b_io.eh.badOutcome(outcome.set(opError=b.op.OpError.Failure, opErrInfo="verify: could not copy the report"))
     (runDir / 'run.json').write_text(json.dumps({'target': target, 'start': start, 'steps': steps}, indent=2) + "\n")
 
     _, logs = runAsBystar(LOGS_SCRIPT, False)

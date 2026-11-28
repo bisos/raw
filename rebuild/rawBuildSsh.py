@@ -115,12 +115,32 @@ def _ok(note=None):
     return b.op.Outcome().set(opError=b.op.OpError.Success)
 
 def _fail(message):
+    """A failed Outcome. The error must be set: b_io.eh.badOutcome only prints, and an Outcome with no
+    error is not isProblematic(), so stepsRun went on past a failed step (found 2026-11-27)."""
     b_io.eh.problem_usageError(message)
-    return b_io.eh.badOutcome(b.op.Outcome())
+    return b_io.eh.badOutcome(b.op.Outcome().set(opError=b.op.OpError.Failure, opErrInfo=message))
 
 def _hasBisos(target):
     rc, out = target.run('test -d /bisos && echo present || echo absent')
     return None if rc != 0 else out.strip().endswith('present')
+
+# The steps that run as bystar, so need an installed box (or rawBisosBase before them).
+BYSTAR_STEPS = ('rawBisosCBMs', 'verify')
+
+def _hasBystar(target):
+    """True when the target has the bystar account; None when ssh failed."""
+    rc, out = target.run('id bystar >/dev/null 2>&1 && echo present || echo absent')
+    return None if rc != 0 else out.strip().endswith('present')
+
+def _needBystar(target, step):
+    """None when bystar exists, else a failed Outcome: the steps that run as bystar need an installed box."""
+    has = _hasBystar(target)
+    if has is None:
+        return _fail(f"{step}: ssh to {target.targetName} failed")
+    if not has:
+        return _fail(f"{step}: {target.targetName} has no bystar account (BISOS not installed):"
+                     " add the rawBisosBase step")
+    return None
 
 def runStart(stepsList):
     """How the run starts: fresh (rawBisosBase without deBisosIfy), deBisosIfied, or None (an existing install)."""
@@ -133,16 +153,23 @@ def runStart(stepsList):
 
 def stepReach(cmnd, target, ctx):
     """ssh works; who, sudo without a password, the Debian version, whether /bisos exists.
-    A run that installs without deBisosIfy needs a fresh box (raw-bisos.sh aborts on an existing /bisos)."""
+    A run that installs without deBisosIfy needs a fresh box (raw-bisos.sh aborts on an existing /bisos);
+    a run that does not install but has steps that run as bystar needs an installed one (/bisos and bystar).
+    A bare ['reach'] is a probe: it reports and passes either way."""
     rc, out = target.run('echo "acct=$(id -un)"; sudo -n true 2>/dev/null && echo sudo=nopasswd || echo sudo=password;'
                          ' . /etc/os-release; echo "debian=${VERSION_ID}";'
-                         ' test -d /bisos && echo bisos=present || echo bisos=absent')
+                         ' test -d /bisos && echo bisos=present || echo bisos=absent;'
+                         ' id bystar >/dev/null 2>&1 && echo bystar=present || echo bystar=absent')
     if rc != 0:
         return _fail(f"reach: ssh {target.acct}@{target.targetName} failed (rc={rc})")
     facts = dict(line.split('=', 1) for line in out.splitlines() if '=' in line)
     print(f"reach: {target.targetName}: " + ", ".join(f"{k} {v}" for k, v in facts.items()))
     if ctx['start'] == 'fresh' and facts.get('bisos') == 'present':
         return _fail(f"reach: {target.targetName} is not fresh (/bisos exists): add the deBisosIfy step, or reinstall Debian")
+    needsInstall = ctx['start'] is None and any(s in BYSTAR_STEPS for s in ctx['steps'])
+    if needsInstall and (facts.get('bisos') != 'present' or facts.get('bystar') != 'present'):
+        return _fail(f"reach: {target.targetName} has no BISOS install (/bisos or bystar absent):"
+                     " add the rawBisosBase step (fresh: reach, rawBisosBase, reboot, rawBisosCBMs, verify)")
     return _ok()
 
 def stepDeBisosIfy(cmnd, target, ctx):
@@ -180,6 +207,8 @@ def stepReboot(cmnd, target, ctx, waitSeconds=900):
 
 def stepRawBisosCBMs(cmnd, target, ctx):
     """As bystar: sysCbmFullyMaterialize.sh (/bisos/core/raw/bin; sysCbmManage.cs -i fullyMaterialize, logged)."""
+    if (failed := _needBystar(target, 'rawBisosCBMs')) is not None:
+        return failed
     rc, _ = target.runAsBystar('sysCbmFullyMaterialize.sh', show=True)
     if rc == 127:
         return _fail(f"rawBisosCBMs: sysCbmFullyMaterialize.sh not found on {target.targetName} (is bisos/raw current?)")
@@ -188,6 +217,8 @@ def stepRawBisosCBMs(cmnd, target, ctx):
 def stepVerify(cmnd, target, ctx):
     """rawBuildVerify.collect over ssh. The install account's raw-bisos log is copied to bystar's home first,
     so that fullyVerify scans it: bystar cannot read the install account's 0700 home."""
+    if (failed := _needBystar(target, 'verify')) is not None:
+        return failed
     target.run('f=$(ls -1t ~/raw-bisos-*-log.org 2>/dev/null | head -1);'
                ' [ -n "$f" ] && sudo install -o bystar -m 0644 "$f" ~bystar/')
     return rawBuildVerify.collect(target.targetName, target.runAsBystar, target.fetch,
