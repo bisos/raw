@@ -175,6 +175,42 @@ def commonParamsSpecify(
         argparseLongOpt='--steps',
     )
     csParams.parDictAdd(
+        parName='targetName',
+        parDescription="Box or guest to rebuild, as ssh reaches it (an IP address or a name)",
+        parDataType=None,
+        parDefault=None,
+        parChoices=None,
+        argparseShortOpt=None,
+        argparseLongOpt='--targetName',
+    )
+    csParams.parDictAdd(
+        parName='debInstAcct',
+        parDescription="The account made at Debian install time (intra on a box, vagrant on a guest)",
+        parDataType=None,
+        parDefault=None,
+        parChoices=None,
+        argparseShortOpt=None,
+        argparseLongOpt='--debInstAcct',
+    )
+    csParams.parDictAdd(
+        parName='debInstAcctPasswd',
+        parDescription="debInstAcct's password (defaults as unsitedBisosDeploy.sh: intra, vagrant)",
+        parDataType=None,
+        parDefault=None,
+        parChoices=None,
+        argparseShortOpt=None,
+        argparseLongOpt='--debInstAcctPasswd',
+    )
+    csParams.parDictAdd(
+        parName='debInstRootPasswd',
+        parDescription="root's password at Debian install time (defaults as unsitedBisosDeploy.sh)",
+        parDataType=None,
+        parDefault=None,
+        parChoices=None,
+        argparseShortOpt=None,
+        argparseLongOpt='--debInstRootPasswd',
+    )
+    csParams.parDictAdd(
         parName='noCache',
         parDescription="No Cache. When True, build the image with --no-cache (ignore layer cache)",
         parDataType=None,

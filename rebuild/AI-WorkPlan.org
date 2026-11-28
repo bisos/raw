@@ -241,11 +241,171 @@ SCHEDULED: <2026-08-31 Mon 09:59>
 
 Goal: Make sure we have a common model and move code from csxu-s to libs.
 
+Designed 2026-11-27 (agreed by Mohsen, to be reviewed): one =steps= model for containers, boxes
+and guests. A guest, once up, is a box (an ssh target) that can also be created and destroyed,
+so boxes and guests share one set of ssh steps, and the guest adds the VM lifecycle around them.
+
+** The Layers Underneath
+
+*** Box: =unsitedBisosDeploy.sh= (bisos/bsip4), run on the manager, ssh to =targetName=
+- =l1_raw_bisos= :: ssh: =wget -O raw-bisos.sh=, then =raw-bisos.sh -i installUnsitedBisos=. The
+  real install path; used for the 2026-11-26 box run (bxGenesis/start =<<3.7>>=).
+- =l1_deBisosIfy= :: =provisionBisos.sh -i deBisosIfy= on the box: kills and deletes the bystar,
+  bxisoDelimiter and bisos users; removes =/bisos=, =/de=, =/bxo=, =/var/bisos=,
+  =/opt/bisosProvisioner=. Debian 13 accepted since bsip4 =839ff23= (minimal). Leaves residue: the
+  groups, the =/etc/sudoers= line, apt packages, systemd units, nginx sites, the =/etc/hosts=
+  blocks, =/usr/local/bin= links. A run after it is *warm*, not fresh. Its =read= prompt gets
+  end-of-input over ssh and goes on (fragile). =provisionBisos.sh= has no Debian 13 branch: the
+  =pipx uninstall= of bisos.provision is Debian 12 only.
+- =l1_reInstall= :: =deBisosIfy=, then =provisionBisos.sh -i sysBasePlatform=: it *skips
+  raw-bisos.sh* (no deb-src, no =cd /=), so it tests another path. Debian 12/11 only (line ~410),
+  and =provisionBisos.sh= =reInstall= has no Debian 13 branch. Not used by the design.
+- Everything but =l1_raw_bisos= hardcodes =intra= instead of =debInstAcct=.
+- =l1_boxUUID= (=dmidecode=), =sysCharBoxDeploy.sh -i l1_boxUUIDToBoxNu= :: a box's identity.
+
+*** Guest: =sysCharGuestMaterialize.sh= (bisos/bsip4)
+=sysCharGuestDeploy.sh= is only an examples menu over it.
+- A Packer base box (=bisos/admin/vagrants/packerBaseBoxes/debian/desktop/debian-13.trixie-amd64.pkr.hcl=,
+  built with bisos.vagrantBaseBoxes), then =vagrantFile_run= with phases (P0 fresh Debian, P0 P1
+  Raw-BISOS), =vagrant up= on libvirt. P1 runs the same =raw-bisos.sh=.
+- Needs a guest BPO with a sysChar (=pmp_VAG-deb13_=): sited machinery, none on the dev host.
+- =withDistroGetVagBaseBox= (=sysChar_lib.sh:132=) has no =deb13=, and asserts 4 args while
+  =vagrantBaseBoxFromSysChar= passes 3: only =sysChar_virtSpec_vagBaseBox= works.
+
+** The Steps
+
+| Container    | Box                                   | Guest                               |
+|--------------+---------------------------------------+-------------------------------------|
+| =delete=       | =deBisosIfy= (warm, not fresh)          | =destroy=: =vagrant destroy=            |
+| =up=           | n/a: a box is up                      | =create=: base box, =vagrant up= (P0)   |
+| =verifyUp=     | =reach=: ssh, sudo NOPASSWD, Debian     | same                                |
+|              | version, whether =/bisos= exists        |                                     |
+| =rawBisosBase= | =l1_raw_bisos=                          | same, as the =vagrant= account        |
+| =down=, =up=     | =reboot=: sudo reboot, wait for ssh     | same                                |
+| =rawBisosCBMs= | ssh as bystar: sysCbmFullyMaterialize | same                                |
+| =verify=       | =fullyVerify= over ssh; =scp= the report  | same                                |
+
+- A fresh box: =['reach','rawBisosBase','reboot','rawBisosCBMs','verify']=.
+- Iterating: =['deBisosIfy','rawBisosBase','reboot','rawBisosCBMs','verify']= --- the speed of
+  =l1_reInstall=, on the real install path.
+- Results under =/bisos/var/rawBuild/<target>/<tag>/=, as for containers, with how the run started
+  (=fresh= or =deBisosIfied=): a warm run is not compared with a fresh one as if alike.
+
+** The Code
+
+- =rawBuildSsh.py= (new): the ssh steps (=reach=, =rawBisosBase=, =deBisosIfy=, =reboot=,
+  =rawBisosCBMs=, =verify=) on top of =unsitedBisosDeploy.sh=, ssh and scp.
+- =_rawBuild_stepVerify= factored out of =rawBuildContainer.cs=: it takes a "run a script on the
+  target" and a "copy a file back" function. Containers pass =docker exec= / =docker cp=; boxes and
+  guests pass ssh / scp. Collect, compare and summarize are written once.
+- =sysCbmFullyMaterialize.sh= moves out of =bro_dockerfiles/common/raw-bisos/= (baked into the
+  images) to where a box can get it (=bisos/raw/bin=, or bxGenesis/start); the images copy it.
+- =rawBuildBox.cs -i procBox=: =targetName= (default the =curTargetBox= current), =debInstAcct= and
+  its passwords, =steps=.
+- =rawBuildKvm.cs= is renamed =rawBuildGuest.cs= (=procGuest=): it matches =sysCharGuest*= and the
+  README's "Guests"; KVM/libvirt is the means. For Raw-BISOS the guest leaf writes a minimal
+  Vagrantfile (the Debian 13 base box, a private network), not a sited BPO;
+  =sysCharGuestMaterialize.sh= stays for sited guests.
+
+** Open
+
+- Where box and guest leaves live. A container leaf is a path in a public BRO; box leaves are
+  site-specific (IPs, accounts), not for a public repo. Proposed: no tree to start (=targetName=,
+  =curTargetBox=); guest leaves a public tree (e.g. =debian/13/guest/vag-desktop/=).
+- Which host runs guests: libvirt, and nested virtualization if that host is itself a VM.
 
 * Stage 3 TODOs
 ** +
-** TODO [#A] The concept of steps should become generic
+** TODO [#A] <<3.1>> The concept of steps should become generic :aiAndMe:
 SCHEDULED: <2026-08-31 Mon 09:59>
+Now: the shared ssh steps (=rawBuildSsh.py=) and the transport-agnostic verify, as in "The Code".
+=rawBuildContainer.cs= keeps its behaviour; re-run its =verify= step on the VM to check.
+----- AI Results: ------
+- 2026-11-28: decisions (Mohsen): no package yet --- modules beside =rawBuild_csu.py=; bystar
+  steps as =debInstAcct= then =sudo -u bystar=; =sshpass= with =debInstAcctPasswd=.
+- =rawBuildVerify.py= (new): =collect(target, runAsBystar, fetch, start, steps)=, the verify step of
+  every platform; =run.json= records how a run started, and a run is compared only with the previous
+  run of the same start. =rawBuildContainer.cs= =_rawBuild_stepVerify= now calls it with
+  =docker exec= / =docker cp= (=rawBuild_resultsBase= removed; =rawBuildVerify.resultsBase=).
+- =rawBuildSsh.py= (new): =SshTarget= and the ssh steps, =sshStepTable=, =stepsListParse=,
+  =stepsRun= (see 3.4).
+- Tested here (no docker, no box): compile; =collect= and =SshTarget.fetch= with local bash in place of
+  ssh, three runs on this host's latest report (fresh, fresh, deBisosIfied): the report directory and
+  a log fetched, =run.json= written, =compare.txt= only for the second fresh run.
+- Not done: the container =verify= step re-run on the VM after the refactor (Mohsen).
+- 2026-11-28, later (Mohsen agreed): a run is compared only with the previous run of the same start
+  *and steps* (=_runKind=), so a base-only =['reach','rawBisosBase','verify']= is not compared with a
+  full CI run. Tested offline: four fresh runs alternating two step lists, each compared with its own.
+
+** TODO [#A] <<3.2>> The layers underneath: Debian 13 and the box account  :aiAndMe:
+:PROPERTIES:
+:REPO: bisos/bsip4, bisos-pip/provision
+:END:
+- =unsitedBisosDeploy.sh=: =l1_reInstall= Debian 13 (=l1_deBisosIfy= and the provision step have it
+  since =839ff23=); =debInstAcct= and its passwords everywhere, not =intra=.
+- =provisionBisos.sh=: Debian 13 in =deBisosIfy= (=pipx uninstall=) and =reInstall=; no =read=
+  prompt when not interactive; also remove the =/etc/sudoers= line and the groups.
+----- AI Results: ------
+- 2026-11-28 (decisions: groups and sudoers only, not apt packages or units; no prompt without a tty):
+  - bsip4 =unsitedBisosDeploy.sh=: the 24 =sshpass -p intra ... intra@= lines use =debInstAcctPasswd= /
+    =debInstAcct=; =distro_intraToSudoersAddition= and =l1_boxUUID= use =debInstRootPasswd= and
+    =debInstAcct=; =l1_reInstall= takes Debian 13.
+  - provision =provisionBisos.sh= =deBisosIfy=: =read= only when stdin is a tty; =delgroup= of =bisos=,
+    =employee=, =subscrbr= when present; bystar's =/etc/sudoers= line removed, then =visudo -c=;
+    =pipx uninstall= and =reInstall='s =pipx install= for Debian 12 and 13. =seedIcmStandalone.bash=:
+    =sysOS_isDeb13= (it had none).
+  - Checked: =bash -n= of =provisionBisos.sh= (the bsip4 scripts and =seedIcmStandalone.bash= fail
+    =bash -n= on their ICM comment blocks, as at HEAD). Not run on a box.
+  - To reach a box: push bsip4 (cloned from GitHub), and release bisos.provision (pipx from PyPI).
+
+** TODO [#A] <<3.3>> =sysCbmFullyMaterialize.sh= where every platform can get it  :aiAndMe:
+:PROPERTIES:
+:REPO: this, bxObjects/bro_dockerfiles
+:END:
+Decide the place (=bisos/raw/bin= or bxGenesis/start); the images copy it from there.
+----- AI Results: ------
+- 2026-11-28 (decision: =bisos/raw/bin=): =bisos/raw/bin/sysCbmFullyMaterialize.sh= (new; =cd ~= added,
+  so it does not depend on its caller's directory) is the one copy; on an installed system it is
+  =/bisos/core/raw/bin=, on PATH. bro_dockerfiles =common/raw-bisos/sysCbmFullyMaterialize.sh= is now
+  a wrapper that execs it (images built before keep the full script); its README and AI-DevStatus.
+  Not run: needs the bisos/raw push before a container or box uses it.
+
+** TODO [#A] <<3.4>> =rawBuildBox.cs -i procBox=  :aiAndMe:
+The steps of the table over =rawBuildSsh.py=; the examples menu (fresh, iterating); the results
+with =fresh= / =deBisosIfied=. Then a run on the box: =deBisosIfy= + the full pipeline.
+----- AI Results: ------
+- 2026-11-28: =rawBuildBox.cs= =procBox= (replaces the =buildBox_rawBisos= placeholder): mandatory
+  =--targetName=, =--debInstAcct= and its passwords (new params in =rawBuild_csu.py=), =--steps=.
+  Steps (=rawBuildSsh.py=), each deciding from evidence on the target:
+  - =reach=: ssh, sudo, Debian version, =/bisos=; a =fresh= run refuses an existing =/bisos=.
+  - =deBisosIfy= / =rawBisosBase=: =unsitedBisosDeploy.sh -i l1_deBisosIfy= / =-i l1_raw_bisos=, then
+    =/bisos= gone / =/bisos/core/bsip/bin= and bystar present.
+  - =reboot= (decision: in the default list): =systemctl reboot=, then the boot id must change (15 min).
+  - =rawBisosCBMs=: =sysCbmFullyMaterialize.sh= as bystar.
+  - =verify=: the install account's raw-bisos log copied to =~bystar= first (bystar cannot read a
+    0700 home), then =rawBuildVerify.collect= with =start= =fresh= or =deBisosIfied=.
+  Menu: reach; reach with the account and passwords given; base-only (=reach=, =rawBisosBase=,
+  =verify=); fresh CI; iterating CI (=deBisosIfy= first); deBisosIfy only; CBMs + verify; verify.
+  A "Lower Layers" chapter: =unsitedBisosDeploy.sh= and =sysCharBoxDeploy.sh= (their own menus), their
+  =l1_raw_bisos=, =l1_deBisosIfy=, =l1_reInstall=, =l1_boxUUID=, =l1_boxUUIDToBoxNu= lines, an ssh shell.
+  README "Boxes" section rewritten; the platform table says =unsitedBisosDeploy.sh=, over ssh.
+- Checked here: compile, the menu, an unknown step, an unreachable target (=reach= fails, rc 255).
+- Not done: the run on the box (192.168.0.90, intra; Mohsen agreed to deBisosIfy it), after the bsip4
+  and bisos/raw pushes and the bisos.provision release (3.2, 3.3). No =curTargetBox= default yet.
+
+** TODO [#B] <<3.5>> Rename =rawBuildKvm.cs= to =rawBuildGuest.cs=  :aiAndMe:
+The file, its examples, README.org (the platform table, the Guests section), AI-DevStatus.org.
+----- AI Results: ------
+- 2026-11-28 (decision: no backward compatibility): =rawBuildKvm.cs= moved (plain =mv=; stage the
+  delete and the add) to =rawBuildGuest.cs=; its command =buildKvm_rawBisos= is =buildGuest_rawBisos=.
+  Its own text, README.org (table, TOC, Guests section and its anchor), AI-DevStatus.org; the mentions
+  in bisos-pip/dockerProc and bisos-pip/fileObj README.org, bxObjects/bro_dockerfiles README.org and
+  bisos-pip/capability AI-WorkPlan.org. The menu renders.
+
+** TODO [#B] <<3.6>> =rawBuildGuest.cs -i procGuest=  :aiAndMe:
+After the Open questions: =create= / =destroy= with a minimal Vagrantfile on the Debian 13 base
+box, then the ssh steps. =withDistroGetVagBaseBox= (=deb13=, the argument count) if the sited path
+is kept working.
 ----- AI Results: ------
 
 ** -

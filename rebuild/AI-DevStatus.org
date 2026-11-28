@@ -22,7 +22,7 @@ architecture, what works, what is untested and the design decisions made so far.
 This file is maintained by Claude. Updates are typically triggered by the
 =/bx-status-update= slash command, after major interactions, or before a release.
 
-Last updated: 2026-11-03.
+Last updated: 2026-11-28.
 
 * Current State
 
@@ -37,13 +37,18 @@ platforms live here:
   First run 2026-11-26 (VM, deb13 sysd): =fullyVerify= wrote its report in the container, then the step
   failed with "no report": =readlink -f= of =verify/latest= resolved through the =/bisos/var= ->
   =/var/bisos= link, so the =/bisos/var/cbm/verify/= prefix check failed. Fixed 2026-11-27: the step
-  reads the link's bare run tag (=readlink=, no =-f=). *The fix is not yet run* on the VM.
-- =rawBuildKvm.cs= --- KVM guests (VAG). Starting point; *not yet tested* ---
-  build body is a placeholder.
-- =rawBuildBox.cs= --- boxes (raw metal). Starting point; *not yet tested* ---
-  build body is a placeholder.
+  reads the link's bare run tag (=readlink=, no =-f=); run on the VM by Mohsen 2026-11-27, it works.
+  2026-11-28: the step is =rawBuildVerify.collect= over =docker exec= / =docker cp= (3.1); *not yet
+  re-run* on the VM after that refactor.
+- =rawBuildBox.cs= --- boxes (raw metal). =procBox= (2026-11-28, AI-WorkPlan.org 3.4): the ssh steps
+  of =rawBuildSsh.py= on top of =unsitedBisosDeploy.sh=. Checked here: compiles, the menu, a usage
+  error, an unreachable target (=reach= fails); =rawBuildVerify.collect= and =SshTarget.fetch= with
+  local bash for ssh (report, logs, run.json, compare by start). *Not yet run on a box.*
+- =rawBuildGuest.cs= --- guests (KVM VMs, VAG); renamed from =rawBuildKvm.cs= 2026-11-28 (3.5).
+  Starting point; *not yet tested* --- build body is a placeholder (3.6).
 
-=rawBuild_csu.py= is the shared CSU (params); =README.org= documents all three.
+=rawBuild_csu.py= is the shared CSU (params); =rawBuildVerify.py= (verify, every platform) and
+=rawBuildSsh.py= (the box and guest steps) are shared modules; =README.org= documents all three.
 
 * Architecture
 
@@ -87,12 +92,32 @@ platforms live here:
   - =containerPathObtain= :: (freshDeb, platformModel) -> leaf path (+ exists guard).
   - =rawBuild_connectInfoShow= :: runnable connect lines (vncviewer / ssh /
     visitUrl), ports read live from =<engine> port <name>=.
-- =rawBuildKvm.cs= :: =buildKvm_rawBisos= --freshDeb; bpoId =pmp_VAG-deb{12,13}_=;
-  intended to drive =sysCharGuestMaterialize.sh= (placeholder body).
-- =rawBuildBox.cs= :: =buildBox_rawBisos= --freshDeb + destination IP as positional
-  arg; intended to drive =sysCharBoxMaterialize.sh= (placeholder body).
+- =rawBuildVerify.py= :: =collect(target, runAsBystar, fetch, start, steps)=: fullyVerify on the
+  target, its report and the newest raw-bisos / sysCbmFullyMaterialize logs to
+  =/bisos/var/rawBuild/<target>/<tag>/=, =run.json= (start, steps), =compare.txt= against the previous
+  run *of the same start and steps* (a container's are None). Fails only when no report is collected.
+- =rawBuildSsh.py= :: =SshTarget= (sshpass as =debInstAcct=, defaults as =unsitedBisosDeploy.sh=;
+  every command from =/=, since the install account's home is 0700; =runAsBystar= via =sudo -u bystar
+  -H bash -ic=; =fetch= through =sudo tar=), the steps (=reach=, =deBisosIfy=, =rawBisosBase=,
+  =reboot=, =rawBisosCBMs=, =verify=, each deciding from evidence on the target, not an exit code),
+  =sshStepTable=, =stepsListParse=, =stepsRun=. Start: =deBisosIfied= when the steps have
+  =deBisosIfy=, =fresh= when they have =rawBisosBase= (=reach= then refuses an existing =/bisos=).
+  =verify= first copies the install account's newest raw-bisos log to =~bystar=, so fullyVerify scans it.
+- =rawBuildBox.cs= :: =procBox= --targetName (mandatory) --debInstAcct --debInstAcctPasswd
+  --debInstRootPasswd --steps. No =curTargetBox= default yet.
+- =rawBuildGuest.cs= :: =buildGuest_rawBisos= --freshDeb; bpoId =pmp_VAG-deb{12,13}_=;
+  intended to drive =sysCharGuestMaterialize.sh= (placeholder body; 3.6).
 
 * Cross-Repo Changes (records outside this repo)
+
+- 2026-11-28 --- for the box steps (AI-WorkPlan.org 3.2):
+  - =bisos/bsip4= =unsitedBisosDeploy.sh=: =debInstAcct= and its passwords everywhere (was =intra=);
+    =l1_reInstall= takes Debian 13 (=l1_deBisosIfy= and the provision step since bsip4 =839ff23=).
+    A box gets bsip4 from GitHub: it needs the push.
+  - =bisos-pip/provision= =provisionBisos.sh= =deBisosIfy=: no =read= prompt without a tty; deletes
+    the =bisos= (and =employee=, =subscrbr=) groups and bystar's =/etc/sudoers= line; Debian 13 in its
+    =pipx uninstall= and in =reInstall=. =seedIcmStandalone.bash=: =sysOS_isDeb13=. A box gets
+    bisos.provision from PyPI: it needs a release.
 
 - =bisos-pip/dockerProc= (=containerProc_csu.py=, =containerProc_seedInfo.py=):
   - =containerProc_exec_installRawBisos= runs as =-u bystar=, no =-it=, propagates exit.
@@ -106,6 +131,8 @@ platforms live here:
   - NEW =common/raw-bisos/sysCbmFullyMaterialize.sh= (2026-11-03) --- baked into
     images at =~/raw-bisos/=; containers get it only after an image rebuild +
     instance re-create. Committed 7193411 (2026-11-03); own AI-Activity root (git-tracked).
+  - 2026-11-28 (3.3): that copy is now a wrapper; the one script is =bisos/raw/bin/
+    sysCbmFullyMaterialize.sh= (=/bisos/core/raw/bin=, on PATH), which boxes and guests run too.
   - VNC password moved to the leaf directory (=<leaf>/bisosVncPasswd=, 2026-11-23,
     f9a8c11): its AI-DevStatus and AI-WorkPlan TODO 6.3. Affects every container
     this repo builds (images must be rebuilt).

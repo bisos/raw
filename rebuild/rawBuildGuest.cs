@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """ #+begin_org
-* ~[Summary]~ :: A =CmndSvc= for rebuilding Raw-BISOS KVM guests (VAG). See ./README.org.
+* ~[Summary]~ :: A =CmndSvc= for rebuilding Raw-BISOS guests (KVM VMs, VAG). See ./README.org.
 #+end_org """
 
 ####+BEGIN: b:py3:cs:file/dblockControls :classification "cs-mu"
@@ -29,7 +29,7 @@
 ####+BEGIN: b:prog:file/particulars :authors ("./inserts/authors-mb.org")
 """ #+begin_org
 * *[[elisp:(org-cycle)][| Particulars |]]* :: Authors, version
-** This File: /bisos/git/auth/bxRepos/bisos/raw/rebuild/rawBuildKvm.cs
+** This File: /bisos/git/auth/bxRepos/bisos/raw/rebuild/rawBuildGuest.cs
 ** Authors: Mohsen BANAN, http://mohsen.banan.1.byname.net/contact
 #+end_org """
 ####+END:
@@ -39,10 +39,10 @@
 * *[[elisp:(org-cycle)][| Particulars-csInfo |]]*
 #+end_org """
 import typing
-csInfo: typing.Dict[str, typing.Any] = { 'moduleName': ['rawBuildKvm'], }
+csInfo: typing.Dict[str, typing.Any] = { 'moduleName': ['rawBuildGuest'], }
 csInfo['version'] = '202409222627'
 csInfo['status']  = 'inUse'
-csInfo['panel'] = 'rawBuildKvm-Panel.org'
+csInfo['panel'] = 'rawBuildGuest-Panel.org'
 csInfo['groupingType'] = 'IcmGroupingType-pkged'
 csInfo['cmndParts'] = 'IcmCmndParts[common] IcmCmndParts[param]'
 ####+END:
@@ -50,7 +50,7 @@ csInfo['cmndParts'] = 'IcmCmndParts[common] IcmCmndParts[param]'
 """ #+begin_org
 * [[elisp:(org-cycle)][| ~Description~ |]] :: [[file:/bisos/git/auth/bxRepos/blee-binders/bisos-core/PyFwrk/bisos-pip/bisos.cs/_nodeBase_/fullUsagePanel-en.org][BISOS CmndSvcs Panel]]   [[elisp:(org-cycle)][| ]]
 
-Top-level orchestrator for rebuilding Raw-BISOS KVM guests from Fresh-Debian.
+Top-level orchestrator for rebuilding Raw-BISOS guests (KVM VMs) from Fresh-Debian.
 This is a thin layer on top of =sysCharGuestMaterialize.sh= (vagrant based).
 
 See ./README.org for the bigger picture (Boxes, Guests and Containers).
@@ -161,21 +161,21 @@ class examples(cs.Cmnd):
         od = collections.OrderedDict
         cmnd = cs.examples.cmndEnter
 
-        # KVM guests --- VAG model only, one entry per Debian release.
-        cs.examples.menuChapter('=Build rawBisos KVM Guests (VAG)=')
+        # Guests (KVM VMs) --- VAG model only, one entry per Debian release.
+        cs.examples.menuChapter('=Build rawBisos Guests (KVM, VAG)=')
         for freshDeb in ('12', '13'):
-            cmnd('buildKvm_rawBisos',
+            cmnd('buildGuest_rawBisos',
                  pars=od(freshDeb=freshDeb),
-                 comment=f" # build KVM guest -- deb{freshDeb} VAG")
+                 comment=f" # build guest -- deb{freshDeb} VAG")
 
         return(cmndOutcome)
 
 
-####+BEGIN: b:py3:cs:cmnd/classHead :cmndName "buildKvm_rawBisos" :comment "" :extent "verify" :ro "cli" :parsMand "" :parsOpt "freshDeb" :argsMin 0 :argsMax 0 :pyInv ""
+####+BEGIN: b:py3:cs:cmnd/classHead :cmndName "buildGuest_rawBisos" :comment "" :extent "verify" :ro "cli" :parsMand "" :parsOpt "freshDeb" :argsMin 0 :argsMax 0 :pyInv ""
 """ #+begin_org
-*  _[[elisp:(blee:menu-sel:outline:popupMenu)][±]]_ _[[elisp:(blee:menu-sel:navigation:popupMenu)][Ξ]]_ [[elisp:(outline-show-branches+toggle)][|=]] [[elisp:(bx:orgm:indirectBufOther)][|>]] *[[elisp:(blee:ppmm:org-mode-toggle)][|N]]*  CmndSvc-   [[elisp:(outline-show-subtree+toggle)][||]] <<buildKvm_rawBisos>>  =verify= parsOpt=freshDeb ro=cli   [[elisp:(org-cycle)][| ]]
+*  _[[elisp:(blee:menu-sel:outline:popupMenu)][±]]_ _[[elisp:(blee:menu-sel:navigation:popupMenu)][Ξ]]_ [[elisp:(outline-show-branches+toggle)][|=]] [[elisp:(bx:orgm:indirectBufOther)][|>]] *[[elisp:(blee:ppmm:org-mode-toggle)][|N]]*  CmndSvc-   [[elisp:(outline-show-subtree+toggle)][||]] <<buildGuest_rawBisos>>  =verify= parsOpt=freshDeb ro=cli   [[elisp:(org-cycle)][| ]]
 #+end_org """
-class buildKvm_rawBisos(cs.Cmnd):
+class buildGuest_rawBisos(cs.Cmnd):
     cmndParamsMandatory = [ ]
     cmndParamsOptional = [ 'freshDeb', ]
     cmndArgsLen = {'Min': 0, 'Max': 0,}
@@ -194,7 +194,7 @@ class buildKvm_rawBisos(cs.Cmnd):
         freshDeb = csParam.mappedValue('freshDeb', freshDeb)
 ####+END:
         if self.cmndDocStr(""" #+begin_org
-** [[elisp:(org-cycle)][| *CmndDesc:* | ]]  Build (rebuild) a Raw-BISOS KVM guest (VAG) from Fresh-Debian.
+** [[elisp:(org-cycle)][| *CmndDesc:* | ]]  Build (rebuild) a Raw-BISOS guest (KVM VM, VAG) from Fresh-Debian.
 
         Orchestration layer on top of /sysCharGuestMaterialize.sh/ (vagrant based).
         Uses =freshDeb= to select the VAG guest bpoId (=pmp_VAG-deb12_= / =pmp_VAG-deb13_=),
@@ -205,7 +205,7 @@ class buildKvm_rawBisos(cs.Cmnd):
 
         self.captureRunStr(""" #+begin_org
 #+begin_src sh :results output :session shared
-  rawBuildKvm.cs -i buildKvm_rawBisos --freshDeb=13
+  rawBuildGuest.cs -i buildGuest_rawBisos --freshDeb=13
 #+end_src
 #+RESULTS:
         #+end_org """)
@@ -214,7 +214,7 @@ class buildKvm_rawBisos(cs.Cmnd):
 
         # TODO Starting point --- wire the sysCharGuestMaterialize.sh orchestration
         # (vagrantFile_run phases=P0, then vmCustomize) via b.subProc.
-        b_io.ann.note(f"buildKvm_rawBisos: freshDeb={freshDeb} bpoId={bpoId} --- not yet implemented")
+        b_io.ann.note(f"buildGuest_rawBisos: freshDeb={freshDeb} bpoId={bpoId} --- not yet implemented")
 
         return cmndOutcome
 

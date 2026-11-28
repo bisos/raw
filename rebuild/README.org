@@ -33,7 +33,7 @@ https://github.com/bxgenesis/start
   - [[#instance-layer-----proccontainer][Instance Layer --- procContainer]]
   - [[#image-layer-----buildimage_rawbisos][Image Layer --- buildImage_rawBisos]]
   - [[#parameters][Parameters]]
-- [[#guests-kvms-----rawbuildkvmcs][Guests (KVMs) --- ./rawBuildKvm.cs]]
+- [[#guests-kvm-vms-----rawbuildguestcs][Guests (KVM VMs) --- ./rawBuildGuest.cs]]
 - [[#boxes-raw-metal-----rawbuildboxcs][Boxes (raw metal) --- ./rawBuildBox.cs]]
 - [[#see-also][See Also]]
 
@@ -60,8 +60,8 @@ example, each leaf ultimately runs =installRawBisos.sh= (which fetches and runs
 | Platform            | Command                | Layered on top of                    |
 |---------------------+------------------------+--------------------------------------|
 | Containers          | =./rawBuildContainer.cs= | =bxObjects/bro_dockerfiles=          |
-| Guests (KVMs)       | =./rawBuildKvm.cs=       | =sysCharGuestMaterialize.sh=         |
-| Boxes (raw metal)   | =./rawBuildBox.cs=       | =sysCharBoxMaterialize.sh=           |
+| Guests (KVM VMs)    | =./rawBuildGuest.cs=     | =sysCharGuestMaterialize.sh=         |
+| Boxes (raw metal)   | =./rawBuildBox.cs=       | =unsitedBisosDeploy.sh=, over ssh    |
 
 All three support Debian 12 and Debian 13 (the two most recent Debian releases).
 
@@ -75,7 +75,7 @@ none subsumes another; the container platform is where all four meet.
 
 | Piece                                  | Kind        | Job                                                                                                                                                                         |
 |----------------------------------------+-------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| =/bisos/core/raw/rebuild= (*this*)       | git repo    | *RawBisos-Reconstruction --- BISOS's CI/CD.* =rawBuildBox.cs= / =rawBuildKvm.cs= / =rawBuildContainer.cs=: one uniform entry point for rebuilding Raw-BISOS on metal, in a KVM guest, or in a container. |
+| =/bisos/core/raw/rebuild= (*this*)       | git repo    | *RawBisos-Reconstruction --- BISOS's CI/CD.* =rawBuildBox.cs= / =rawBuildGuest.cs= / =rawBuildContainer.cs=: one uniform entry point for rebuilding Raw-BISOS on metal, in a KVM guest, or in a container. |
 | [[https://github.com/bxObjects/bro_dockerfiles][=bro_dockerfiles=]]                     | BRO (repo)  | *Container image specifications.* The six-leaf matrix (deb12/13 × confined/privileged/rootless-sysd) --- Dockerfiles, systemd units, and the =~/raw-bisos= payload baked into each image.  |
 | [[https://github.com/bisos-pip/dockerProc][=bisos.dockerProc=]]                    | pip package | *Container framework.* The planted =dockerProc.spcs= / =podmanProc.spcs=, path-derived parameters, and the =containerProc_*= verbs that build / run / verify one leaf.        |
 | [[https://github.com/bisos-pip/fileObj][=bisos.fileObj=]]                        | pip package | *Generic tree walker.* FTO marker conventions plus =ftoBranchProc.spcs=, which applies one verb across every leaf beneath a branch. Domain-agnostic --- it knows nothing about containers. |
@@ -83,7 +83,7 @@ none subsumes another; the container platform is where all four meet.
 Only =rawBuildContainer.cs= touches the container pieces, and it touches them
 at arm's length: it locates a leaf and subprocess-invokes that leaf's planted
 =.spcs=, exactly as its siblings shell out to =sysCharGuestMaterialize.sh= and
-=sysCharBoxMaterialize.sh=. The middle two repos are jointly designed with each
+=unsitedBisosDeploy.sh=. The middle two repos are jointly designed with each
 other (specification + framework) and are documented as a pair in their own
 READMEs; this repo is a *consumer* of that pair, not part of it.
 
@@ -116,7 +116,7 @@ and it is worth being explicit about which is which:
       --steps='["delete", "up", "rawBisosBase", "down", "up", "rawBisosCBMs"]'
   #+end_src
 
-The =rawBuild*= family deliberately does *not* use the walker. =rawBuildKvm.cs=
+The =rawBuild*= family deliberately does *not* use the walker. =rawBuildGuest.cs=
 and =rawBuildBox.cs= have no tree to walk --- their targets are a bpoId and an
 IP address, not directories. What the three siblings share is =freshDeb= and a
 uniform face for reconstruction; a tree is a container-side implementation
@@ -311,9 +311,9 @@ Parameter values use Python-literal syntax (e.g. =True=, not ='t'=).
 | =steps=          | Python list, e.g. =["up","verifyUp"]= | instance layer  | Ordered pipeline steps for =procContainer= (fail-fast) |
 | =noCache=        | =True=                              | image layer       | Build the image with =--no-cache=                   |
 
-* Guests (KVMs) --- ./rawBuildKvm.cs
+* Guests (KVM VMs) --- ./rawBuildGuest.cs
   :PROPERTIES:
-  :CUSTOM_ID: guests-kvms-----rawbuildkvmcs
+  :CUSTOM_ID: guests-kvm-vms-----rawbuildguestcs
   :END:
 
 Builds generic Debian 12 and Debian 13 guest VMs (VAG model), as an orchestration
@@ -321,28 +321,49 @@ layer on top of =sysCharGuestMaterialize.sh=. Single layer, one command per
 release (=freshDeb= selects the =pmp_VAG-deb{12,13}_= bpoId):
 
 #+begin_src sh
-rawBuildKvm.cs -i buildKvm_rawBisos --freshDeb="12"
-rawBuildKvm.cs -i buildKvm_rawBisos --freshDeb="13"
+rawBuildGuest.cs -i buildGuest_rawBisos --freshDeb="12"
+rawBuildGuest.cs -i buildGuest_rawBisos --freshDeb="13"
 #+end_src
 
-/Status: starting point --- the materialization is not yet wired./
+/Status: starting point --- the materialization is not yet wired./ Renamed from =rawBuildKvm.cs=
+(2026-11-28): a guest is what it is, KVM/libvirt is the means. The plan (AI-WorkPlan.org 3.6): a
+guest, once up, is a box that can also be created and destroyed --- =procGuest= adds =create= and
+=destroy= around the ssh steps of =rawBuildBox.cs=.
 
 * Boxes (raw metal) --- ./rawBuildBox.cs
   :PROPERTIES:
   :CUSTOM_ID: boxes-raw-metal-----rawbuildboxcs
   :END:
 
-Builds generic Debian 12 and Debian 13 on real hardware (laptops, Raspberry Pi,
-etc), as an orchestration layer on top of =sysCharBoxMaterialize.sh=. The
-destination box IP address is the positional argument; =freshDeb= selects the
-release:
+Rebuilds Raw-BISOS on real hardware (laptops, Raspberry Pi, servers) running Debian 12 or 13, with the
+same =steps= model as containers. =procBox= reaches the box over ssh as its Debian install account
+(=--debInstAcct=, default intra, passwords as =unsitedBisosDeploy.sh=), from the manager:
 
 #+begin_src sh
-rawBuildBox.cs -i buildBox_rawBisos --freshDeb="12" 192.168.0.45
-rawBuildBox.cs -i buildBox_rawBisos --freshDeb="13" 192.168.0.45
+rawBuildBox.cs -i procBox --targetName=192.168.0.45 --steps='["reach"]'
+rawBuildBox.cs -i procBox --targetName=192.168.0.45 --steps='["reach", "rawBisosBase", "reboot", "rawBisosCBMs", "verify"]'
+rawBuildBox.cs -i procBox --targetName=192.168.0.45 --steps='["reach", "deBisosIfy", "rawBisosBase", "reboot", "rawBisosCBMs", "verify"]'
 #+end_src
 
-/Status: starting point --- the materialization is not yet wired./
+| Step         | Meaning                                                    | On top of                          |
+|--------------+------------------------------------------------------------+------------------------------------|
+| =reach=        | ssh, sudo, Debian version, whether =/bisos= exists           | ssh                                |
+| =deBisosIfy=   | remove BISOS: users, groups, =/bisos=, =/bxo=, =/var/bisos=, ... | =unsitedBisosDeploy.sh -i l1_deBisosIfy= |
+| =rawBisosBase= | fetch and run =raw-bisos.sh -i installUnsitedBisos=          | =unsitedBisosDeploy.sh -i l1_raw_bisos=  |
+| =reboot=       | reboot, wait for ssh (groups and services as on a real boot) | ssh                                |
+| =rawBisosCBMs= | =sysCbmFullyMaterialize.sh=, as bystar                       | =/bisos/core/raw/bin=                |
+| =verify=       | =fullyVerify= as bystar; report and logs to the manager      | =rawBuildVerify.py=                  |
+
+- *Fresh or warm.* A run with =rawBisosBase= and without =deBisosIfy= needs a fresh Debian (=reach=
+  refuses an existing =/bisos=; =raw-bisos.sh= would abort). =deBisosIfy= is the fast way back, but
+  warm: apt packages, systemd units, nginx sites and =/etc/hosts= blocks stay. Each run records its
+  start (=fresh=, =deBisosIfied=) and steps in =run.json=, and is compared only with the previous run
+  of the same start and steps (a base-only run is not compared with one that also did the CBMs).
+- Results, as for containers: =/bisos/var/rawBuild/<targetName>/<yymmddHHMMSS>/=.
+- The code: the steps are in =rawBuildSsh.py= (shared with guests); the =verify= collection is in
+  =rawBuildVerify.py= (shared with containers, which pass =docker exec= / =docker cp=).
+
+/Status: written 2026-11-28 (AI-WorkPlan.org 3.4); not yet run on a box./
 
 * See Also
   :PROPERTIES:

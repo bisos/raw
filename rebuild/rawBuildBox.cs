@@ -50,14 +50,12 @@ csInfo['cmndParts'] = 'IcmCmndParts[common] IcmCmndParts[param]'
 """ #+begin_org
 * [[elisp:(org-cycle)][| ~Description~ |]] :: [[file:/bisos/git/auth/bxRepos/blee-binders/bisos-core/PyFwrk/bisos-pip/bisos.cs/_nodeBase_/fullUsagePanel-en.org][BISOS CmndSvcs Panel]]   [[elisp:(org-cycle)][| ]]
 
-Top-level orchestrator for rebuilding Raw-BISOS on a box (raw metal) at a
-destination IP address. This is a thin layer on top of =sysCharBoxMaterialize.sh=.
-
-The destination box IP address is given as the single positional argument.
+Top-level orchestrator for rebuilding Raw-BISOS on a box (raw metal), over ssh. The same =steps=
+model as rawBuildContainer.cs, on top of =unsitedBisosDeploy.sh= (rawBuildSsh.py).
 
 See ./README.org for the bigger picture (Boxes, Guests and Containers).
 
-** Status: Starting point --- build orchestration not yet wired.
+** Status: In development (AI-WorkPlan.org 3.4); not yet run on a box.
 #+end_org """
 
 ####+BEGIN: b:prog:file/orgTopControls :outLevel 1
@@ -162,83 +160,107 @@ class examples(cs.Cmnd):
 
         od = collections.OrderedDict
         cmnd = cs.examples.cmndEnter
+        literal = cs.examples.execInsert
 
-        # Boxes (raw metal) --- one entry per Debian release; the destination box IP
-        # is the positional argument (example placeholder shown).
-        exampleIp = "192.168.0.45"
-        cs.examples.menuChapter('=Build rawBisos Boxes (raw metal)=')
-        for freshDeb in ('12', '13'):
-            cmnd('buildBox_rawBisos',
-                 pars=od(freshDeb=freshDeb),
-                 args=exampleIp,
-                 comment=f" # build box -- deb{freshDeb} @ {exampleIp}")
+        # A box is up already: no create / delete. deBisosIfy is the fast way back to a box without
+        # BISOS (warm: some residue stays); a fresh box is a fresh Debian install. AI-WorkPlan.org 3.4.
+        exampleTarget = "192.168.0.45"   # edit: the box's IP address
+        boxPars = od(targetName=exampleTarget)
+        cs.examples.menuChapter(f'=Build rawBisos on a Box --- {exampleTarget} (intra)=')
+        cmnd('procBox', pars=od(**boxPars, steps=['reach']),
+             comment=" # ssh, sudo, Debian version, /bisos present?")
+        cmnd('procBox', pars=od(**boxPars, debInstAcct='intra', debInstAcctPasswd='intra', debInstRootPasswd='intra',
+                                steps=['reach']),
+             comment=" # the install account and its passwords given (these are the defaults)")
+        cmnd('procBox', pars=od(**boxPars, steps=['reach', 'rawBisosBase', 'verify']),
+             comment=" # fresh Debian: install + verify (the base only: no reboot, no CBMs)")
+        cmnd('procBox', pars=od(**boxPars, steps=['reach', 'rawBisosBase', 'reboot', 'rawBisosCBMs', 'verify']),
+             comment=" # CI, fresh Debian: install + reboot (groups) + CBMs + verify")
+        cmnd('procBox', pars=od(**boxPars, steps=['reach', 'deBisosIfy', 'rawBisosBase', 'reboot', 'rawBisosCBMs', 'verify']),
+             comment=" # CI, iterating: deBisosIfy first (warm, not fresh)")
+        cmnd('procBox', pars=od(**boxPars, steps=['reach', 'deBisosIfy']),
+             comment=" # remove BISOS from the box")
+        cmnd('procBox', pars=od(**boxPars, steps=['reach', 'rawBisosCBMs', 'verify']),
+             comment=" # CBMs + verify on an installed box")
+        cmnd('procBox', pars=od(**boxPars, steps=['verify']),
+             comment=" # verify only (report and logs to /bisos/var/rawBuild/<box>/, compared)")
+
+        # The lower layers --- what the steps run, for running one by hand (bisos/bsip4, on the manager).
+        deployPars = f'-p targetName="{exampleTarget}" -p debInstAcct="intra" -p debInstAcctPasswd="intra" -p debInstRootPasswd="intra"'
+        cs.examples.menuChapter('=Lower Layers --- unsitedBisosDeploy.sh, sysCharBoxDeploy.sh, ssh=')
+        literal('unsitedBisosDeploy.sh   # its own examples menu')
+        literal('sysCharBoxDeploy.sh     # its own examples menu')
+        literal(f'unsitedBisosDeploy.sh -h -v -n showRun {deployPars} -i l1_raw_bisos   # step rawBisosBase')
+        literal(f'unsitedBisosDeploy.sh -h -v -n showRun {deployPars} -i l1_deBisosIfy  # step deBisosIfy')
+        literal(f'unsitedBisosDeploy.sh -h -v -n showRun {deployPars} -i l1_reInstall   # deBisosIfy + sysBasePlatform (skips raw-bisos.sh)')
+        literal(f'unsitedBisosDeploy.sh -h -v -n showRun {deployPars} -i l1_boxUUID     # the box identity (dmidecode)')
+        literal(f'sysCharBoxDeploy.sh -h -v -n showRun -p targetName="{exampleTarget}" -i l1_boxUUIDToBoxNu   # the box identity, registered')
+        literal(f'sshpass -p intra ssh -o StrictHostKeyChecking=no intra@{exampleTarget}   # a shell on the box, as the install account')
 
         return(cmndOutcome)
 
 
-####+BEGIN: b:py3:cs:cmnd/classHead :cmndName "buildBox_rawBisos" :comment "" :extent "verify" :ro "cli" :parsMand "" :parsOpt "freshDeb" :argsMin 1 :argsMax 1 :pyInv ""
+####+BEGIN: b:py3:cs:cmnd/classHead :cmndName "procBox" :comment "" :extent "verify" :ro "cli" :parsMand "targetName" :parsOpt "debInstAcct debInstAcctPasswd debInstRootPasswd steps" :argsMin 0 :argsMax 0 :pyInv ""
 """ #+begin_org
-*  _[[elisp:(blee:menu-sel:outline:popupMenu)][±]]_ _[[elisp:(blee:menu-sel:navigation:popupMenu)][Ξ]]_ [[elisp:(outline-show-branches+toggle)][|=]] [[elisp:(bx:orgm:indirectBufOther)][|>]] *[[elisp:(blee:ppmm:org-mode-toggle)][|N]]*  CmndSvc-   [[elisp:(outline-show-subtree+toggle)][||]] <<buildBox_rawBisos>>  =verify= parsOpt=freshDeb argsMin=1 argsMax=1 ro=cli   [[elisp:(org-cycle)][| ]]
+*  _[[elisp:(blee:menu-sel:outline:popupMenu)][±]]_ _[[elisp:(blee:menu-sel:navigation:popupMenu)][Ξ]]_ [[elisp:(outline-show-branches+toggle)][|=]] [[elisp:(bx:orgm:indirectBufOther)][|>]] *[[elisp:(blee:ppmm:org-mode-toggle)][|N]]*  CmndSvc-   [[elisp:(outline-show-subtree+toggle)][||]] <<procBox>>  =verify= parsMand=targetName parsOpt=debInstAcct debInstAcctPasswd debInstRootPasswd steps ro=cli   [[elisp:(org-cycle)][| ]]
 #+end_org """
-class buildBox_rawBisos(cs.Cmnd):
-    cmndParamsMandatory = [ ]
-    cmndParamsOptional = [ 'freshDeb', ]
-    cmndArgsLen = {'Min': 1, 'Max': 1,}
+class procBox(cs.Cmnd):
+    cmndParamsMandatory = [ 'targetName', ]
+    cmndParamsOptional = [ 'debInstAcct', 'debInstAcctPasswd', 'debInstRootPasswd', 'steps', ]
+    cmndArgsLen = {'Min': 0, 'Max': 0,}
 
     @cs.track(fnLoc=True, fnEntry=True, fnExit=True)
     def cmnd(self,
              rtInv: cs.RtInvoker,
              cmndOutcome: b.op.Outcome,
-             freshDeb: typing.Optional[str]=None,  # Cs Optional Param
-             argsList: typing.Optional[list[str]]=None,  # CsArgs
+             targetName: typing.Optional[str]=None,  # Cs Mandatory Param
+             debInstAcct: typing.Optional[str]=None,  # Cs Optional Param
+             debInstAcctPasswd: typing.Optional[str]=None,  # Cs Optional Param
+             debInstRootPasswd: typing.Optional[str]=None,  # Cs Optional Param
+             steps: typing.Optional[str]=None,  # Cs Optional Param
     ) -> b.op.Outcome:
 
         failed = b_io.eh.badOutcome
-        callParamsDict = {'freshDeb': freshDeb, }
-        if self.invocationValidate(rtInv, cmndOutcome, callParamsDict, argsList).isProblematic():
+        callParamsDict = {'targetName': targetName, 'debInstAcct': debInstAcct, 'debInstAcctPasswd': debInstAcctPasswd, 'debInstRootPasswd': debInstRootPasswd, 'steps': steps, }
+        if self.invocationValidate(rtInv, cmndOutcome, callParamsDict, None).isProblematic():
             return failed(cmndOutcome)
-        freshDeb = csParam.mappedValue('freshDeb', freshDeb)
-        cmndArgsSpecDict = self.cmndArgsSpec()
+        targetName = csParam.mappedValue('targetName', targetName)
+        debInstAcct = csParam.mappedValue('debInstAcct', debInstAcct)
+        debInstAcctPasswd = csParam.mappedValue('debInstAcctPasswd', debInstAcctPasswd)
+        debInstRootPasswd = csParam.mappedValue('debInstRootPasswd', debInstRootPasswd)
+        steps = csParam.mappedValue('steps', steps)
 ####+END:
         if self.cmndDocStr(""" #+begin_org
-** [[elisp:(org-cycle)][| *CmndDesc:* | ]]  Build (rebuild) Raw-BISOS on a box (raw metal) at a destination IP.
+** [[elisp:(org-cycle)][| *CmndDesc:* | ]]  Process a box (raw metal) through a serial list of =steps=, over ssh.
 
-        Orchestration layer on top of /sysCharBoxMaterialize.sh/.
-        Takes the destination box IP address as its single positional argument and
-        uses =freshDeb= to select the Debian release. Typically points curTargetBox at
-        the given IP, then drives the box materialization.
+        The box is reached as its Debian install account (=debInstAcct=, default intra/intra/intra as
+        unsitedBisosDeploy.sh). =steps= is a Python-literal list, run in order, fail-fast. Known steps:
+        =reach= (ssh, sudo, Debian version, /bisos), =deBisosIfy= (unsitedBisosDeploy.sh -i
+        l1_deBisosIfy: remove BISOS; warm), =rawBisosBase= (unsitedBisosDeploy.sh -i l1_raw_bisos),
+        =reboot= (and wait for ssh), =rawBisosCBMs= (sysCbmFullyMaterialize.sh as bystar), =verify=
+        (fullyVerify as bystar; its report and logs to /bisos/var/rawBuild/<targetName>/<date>/, compared
+        with the previous run of the same start --- fresh or deBisosIfied --- and steps). Examples:
+          -i procBox --targetName=192.168.0.45 --steps='["reach"]'
+          -i procBox --targetName=192.168.0.45 --steps='["reach", "deBisosIfy", "rawBisosBase", "reboot", "rawBisosCBMs", "verify"]'
         #+end_org """): return(cmndOutcome)
 
         self.captureRunStr(""" #+begin_org
 #+begin_src sh :results output :session shared
-  rawBuildBox.cs -i buildBox_rawBisos --freshDeb=13 192.168.0.45
+  rawBuildBox.cs -i procBox --targetName=192.168.0.45 --steps='["reach"]'
 #+end_src
 #+RESULTS:
         #+end_org """)
 
-        ipAddr = self.cmndArgsGet("0", cmndArgsSpecDict, argsList)
+        import rawBuildSsh
 
-        # TODO Starting point --- wire the sysCharBoxMaterialize.sh orchestration
-        # against ipAddr via b.subProc.
-        b_io.ann.note(f"buildBox_rawBisos: freshDeb={freshDeb} ipAddr={ipAddr} --- not yet implemented")
+        if (stepsList := rawBuildSsh.stepsListParse(steps, rawBuildSsh.sshStepTable)) is None:
+            return failed(cmndOutcome)
+
+        target = rawBuildSsh.SshTarget(targetName, debInstAcct, debInstAcctPasswd, debInstRootPasswd)
+        if not rawBuildSsh.stepsRun(self, target, stepsList, rawBuildSsh.sshStepTable):
+            return failed(cmndOutcome)
 
         return cmndOutcome
-
-####+BEGIN: b:py3:cs:method/args :methodName "cmndArgsSpec" :methodType "anyOrNone" :retType "bool" :deco "default" :argsList "self"
-    """ #+begin_org
-*  _[[elisp:(blee:menu-sel:outline:popupMenu)][±]]_ _[[elisp:(blee:menu-sel:navigation:popupMenu)][Ξ]]_ [[elisp:(outline-show-branches+toggle)][|=]] [[elisp:(bx:orgm:indirectBufOther)][|>]] *[[elisp:(blee:ppmm:org-mode-toggle)][|N]]*  Mtd-T-anyOrNone [[elisp:(outline-show-subtree+toggle)][||]] /cmndArgsSpec/ deco=default   [[elisp:(org-cycle)][| ]]
-    #+end_org """
-    @cs.track(fnLoc=True, fnEntry=True, fnExit=True)
-    def cmndArgsSpec(self, ):
-####+END:
-        cmndArgsSpecDict = cs.arg.CmndArgsSpecDict()
-        cmndArgsSpecDict.argsDictAdd(
-            argPosition="0",
-            argName="ipAddr",
-            argChoices=[],
-            argDescription="Destination box IP address (e.g. 192.168.0.45)",
-        )
-        return cmndArgsSpecDict
 
 ####+BEGIN: blee:bxPanel:foldingSection :outLevel 0 :sep nil :title "Main" :anchor ""  :extraInfo "Framework DBlock"
 """ #+begin_org
