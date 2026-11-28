@@ -408,6 +408,47 @@ box, then the ssh steps. =withDistroGetVagBaseBox= (=deb13=, the argument count)
 is kept working.
 ----- AI Results: ------
 
+** TODO [#A] <<3.7>> The first box CBMs run (261127185834): bystar has no nvm  :aiAndMe:
+:PROPERTIES:
+:REPO: bisos/bsip4
+:END:
+Verify: fail 8, ok 11 (the container run 2611261624: fail 1, csPlayerPerf). The cause of most of them:
+=bsipProvision.sh:168= runs =nvm-sbom.pcs= as its invoker, and on a box that is the install account,
+so nvm went to =/home/intra/.nvm= (2611262000-box =rawBisos.log:5118=). bystar's leaves then got
+Debian's node v20.19.2 / npm 9.2: reactPlus's =npm install --global= fails (EACCES on
+=/usr/local/lib/node_modules=), so =gatsby= is missing (gatsbyBxSidebar), =astro build= needs node
+>= 22.12 (astroStarter, platform, example), and =npm ci= rejects csPlayerUi's lock (it passed with npm 11).
+In the container the invoker is bystar, which is why it did not show there.
+- Also found, not fixed here:
+  - bisos.sbom =sbom_fullUpdate= (=sbom_csu.py=) runs a sbom's npm packages before its sub-sboms, so
+    reactPlus's own =nvm-sbom.pcs= prerequisite never runs: the failed npm installs return first.
+  - csPlayerPerf (in the container too): =csPlayerPerf-assemble.cs= =restart= (=try-restart= of a unit
+    not yet written, rc 5) aborts =fullUpdate= before the vhost (capability 4.6).
+  - emacsSrcBuild: =srcPkgObtain= exited 0 with no sources (its log is =/tmp/emacs31SrcBuild/= on the
+    box; likely the network), so bleeBuild too.
+  - HeVeA: the hereWeb sites are built before =induct/lcntCore= installs it (=sysCbmManage_csu.py=
+    walks hereWeb, pals, induct), in the container too; the existing =contentBody.html= is kept.
+  - =ssh-keygen -t dsa= in =lcaSshAdmin.sh= (Debian 13 has no DSA), harmless.
+----- AI Results: ------
+- 2026-11-28: bsip4 =bsipProvision.sh:168=: =sudo -u bystar -H env -C ~bystar PATH=... nvm-sbom.pcs=
+  (the cwd as in the =env -C /bisos= fixes). Also bro_rawBisosPlatform =induct/vscodeClaude=
+  =cbmProc.control=: =available= -> =enabled=. Not run: needs the bsip4 push, then =rawBisosBase= and
+  =rawBisosCBMs= on the box; =/home/intra/.nvm= is left behind (deBisosIfy does not remove it).
+- 2026-11-28 (decision, Mohsen: walk Emacs and Blee, then lcnt, then the web; and CBMs self-contained
+  where they can be): bisos-pip/capability =sysCbmManage_csu.py= =cbmDispatch= walks =collective/induct=
+  first, then hereWeb, then pals (=verifyWalkRoots= the same); README.org. bro_rawBisosPlatform
+  =induct/ftoBranchProc.spcs=: pltfrmDevelBecome, emacsSrcBuild, bleeBuild, vscodeClaude, lcntCore,
+  lcntBases, lcntMultiMedia. Compiled; not run. Reaches a box only with a bisos.capability release
+  (0.29 on PyPI) and the bro_rawBisosPlatform push.
+- 2026-11-28 (decisions, Mohsen: the sbom order is a bug, sub-sboms first was the intent; CBMs
+  self-contained where it makes sense, not as an absolute):
+  - bisos-pip/sbom =sbom_fullUpdate= runs the =sbomsList= first (its AI-WorkPlan =<<subSbomsFirst>>=).
+  - bisos-pip/webCap =py3/bin/astroSite-sbom.pcs= (new): =nvm-sbom.pcs= and apt =hevea=. It is the
+    =sbom= of astroStarter, csPlayerUi, platform and bisos.pals's =pals-cbs.spcs= (was =None=);
+    gatsbyBxSidebar's is =reactPlus-sbom.pcs=. Their docstrings and two README.org updated.
+  - Parsed only; not run. Order of release: webCap (=astroSite-sbom.pcs= on PATH) before the site repos
+    are pushed or pals released, else those sites' sbom step fails; bisos.sbom; bisos.capability.
+
 ** -
 
 
